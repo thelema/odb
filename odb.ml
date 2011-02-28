@@ -7,6 +7,7 @@ let cleanup = false
 open Batteries_uni
 open Http_client.Convenience
 open Printf
+open Str
 
 type pkg = {id: string; mutable props: (string * string) list}
 type dep_tree = N of pkg * dep_tree list
@@ -64,8 +65,8 @@ let install p =
 	failwith ("Could not build " ^ p.id);
       if Sys.command ("OCAMLFIND_DESTDIR="^odb_home^"/lib make install") <> 0 then
 	failwith ("Could not install package " ^ p.id);
-    end
-      Sys.chdir odb_home;
+    end;
+    Sys.chdir odb_home;
     if cleanup then Sys.command ("rm -rf " ^ install_dir) |> ignore;
   end
 
@@ -76,7 +77,17 @@ let install_dep p =
   in
   loop (all_deps p)
 
+let pkg_rx = Str.regexp "<a href=.[-a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
+let get_pkg str = 
+  if Str.string_match pkg_rx str 0 then Str.matched_group 1 str else failwith"bad html"
+let cleanup_list str =
+  String.nsplit str "<td class=\"n\">" |> List.drop 2 |> List.map get_pkg |> String.concat " "
+
 let () = 
   if not (Sys.file_exists odb_home) then Unix.mkdir odb_home 0o700;
   Sys.chdir odb_home;
-  args () |> Enum.iter (to_pkg |- install_dep);
+  if Array.length Sys.argv = 1 then ( (* list packages to install *)
+    print_string "Available packages: ";
+    deps_uri "" |> http_get |> cleanup_list |> print_endline
+  ) else (* install listed packages *)
+    args () |> Enum.iter (to_pkg |- install_dep);
