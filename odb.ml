@@ -1,4 +1,8 @@
 (* ocamlfind ocamlopt -linkpkg -package batteries,netclient -g -w Z odb.ml -o odb *)
+let webroot = "http://mutt.cse.msu.edu:8081/"
+let odb_home = (Sys.getenv "HOME") ^ "/.odb"
+let cleanup = false
+
 
 open Batteries_uni
 open Http_client.Convenience
@@ -7,17 +11,16 @@ open Printf
 type pkg = {id: string; mutable props: (string * string) list}
 type dep_tree = N of pkg * dep_tree list
 
-let webroot = "http://mutt.cse.msu.edu/"
-let odb_home = (Sys.getenv "HOME") ^ "/.odb"
-
-let get_prop ~p ~n = List.assoc n p.props
+let get_prop ~p ~n = try List.assoc n p.props with Not_found -> ""
+let get_prop_b ~p ~n = try List.assoc n p.props |> bool_of_string with Not_found -> false
+let get_prop_i ~p ~n = try List.assoc n p.props |> int_of_string with Not_found -> -1
 let tarball_uri p = webroot ^ "pkg/" ^ (get_prop ~p ~n:"tarball")
 let deps_uri id = webroot ^ "pkg/dep/" ^ id
 
 
 let split_by pat str = String.nsplit str pat
-let to_alist = split_by "\n" |- List.map 
-    (fun s -> String.split s "=" |> Tuple2.map String.trim)
+let to_alist = split_by "\n" |- List.filter_map 
+    (fun s -> if String.contains s '=' then Some (String.split s "=" |> Tuple2.map String.trim) else None)
 let get_info id = deps_uri id |> tap (printf "uri:%s\n%!") |> http_get |> to_alist
 
 (* TODO: verify no bad chars to make command construction safer *)
@@ -29,32 +32,32 @@ let get_tarball p = (* TODO: make efficient *)
     (fun oc fn -> IO.nwrite oc tarball_contents; fn)
   (* returns the filename the tarball is stored in *)
   
-let has_dep p = Sys.command ("ocamlfind query " ^ p.id) = 0  
+let has_dep p = Sys.command ("ocamlfind query " ^ p.id) = 0 || Sys.command ("which " ^ p.id) = 0
 let get_deps p = get_prop ~p ~n:"deps" |> split_by "," |> List.map to_pkg
 let rec all_deps p = 
-  printf "ad: %s = " p.id;
   let ds = get_deps p |> List.filter (has_dep |- not) in
-  printf "%a\n%!" (List.print String.print) (List.map (fun i -> i.id) ds);
   N (p, List.map all_deps ds)
 
 let install p = 
-  if true then printf "Install: %s\n" p.id
-  else begin
+(*  if true then printf "Install: %s\n" p.id else  *)
+    begin
     let install_dir = "install-" ^ p.id in
-    Unix.mkdir install_dir 0o700;
+    if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
     if Sys.command ("tar -zxvf " ^ tb) <> 0 then 
       failwith ("Could not extract tarball for " ^ p.id);
-    let tbdir = Sys.files_of "." // Sys.is_directory |> Enum.get |> Option.get in
-    Sys.chdir tbdir;
+
+    (Sys.files_of "." // Sys.is_directory) |> Enum.get |> Option.may Sys.chdir;
+
     if Sys.file_exists "configure" then
-      Sys.command ("./configure") |> ignore;
+      Sys.command ("sh configure") |> ignore;
     if Sys.command ("make") <> 0 then
-      failwith ("Could not build tarball for " ^ p.id);
+      failwith ("Could not build " ^ p.id);
     if Sys.command ("OCAMLFIND_DESTDIR="^odb_home^"/lib make install") <> 0 then
       failwith ("Could not install package " ^ p.id);
-    Sys.chdir "../.."
+    Sys.chdir odb_home;
+    if cleanup then Sys.command ("rm -rf " ^ install_dir) |> ignore;
   end
 
 let install_dep p =
