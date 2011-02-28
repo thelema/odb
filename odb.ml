@@ -15,7 +15,7 @@ let get_prop ~p ~n = try List.assoc n p.props with Not_found -> ""
 let get_prop_b ~p ~n = try List.assoc n p.props |> bool_of_string with Not_found -> false
 let get_prop_i ~p ~n = try List.assoc n p.props |> int_of_string with Not_found -> -1
 let tarball_uri p = webroot ^ "pkg/" ^ (get_prop ~p ~n:"tarball")
-let deps_uri id = webroot ^ "pkg/dep/" ^ id
+let deps_uri id = webroot ^ "pkg/info/" ^ id
 
 
 let split_by pat str = String.nsplit str pat
@@ -39,8 +39,8 @@ let rec all_deps p =
   N (p, List.map all_deps ds)
 
 let install p = 
-(*  if true then printf "Install: %s\n" p.id else  *)
-    begin
+    (*  if true then printf "Install: %s\n" p.id else  *)
+  begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
@@ -50,13 +50,22 @@ let install p =
 
     (Sys.files_of "." // Sys.is_directory) |> Enum.get |> Option.may Sys.chdir;
 
-    if Sys.file_exists "configure" then
-      Sys.command ("sh configure") |> ignore;
-    if Sys.command ("make") <> 0 then
-      failwith ("Could not build " ^ p.id);
-    if Sys.command ("OCAMLFIND_DESTDIR="^odb_home^"/lib make install") <> 0 then
-      failwith ("Could not install package " ^ p.id);
-    Sys.chdir odb_home;
+    if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
+      if Sys.command ("ocaml setup.ml -configure") <> 0 then
+	failwith ("Could not configure " ^ p.id);
+      if Sys.command ("ocaml setup.ml -build") <> 0 then
+	failwith ("Could not build " ^ p.id);
+      if Sys.command ("ocaml setup.ml -install") <> 0 then
+	failwith ("Could not install package " ^ p.id);
+    end else begin
+      if Sys.file_exists "configure" then
+	Sys.command ("sh configure") |> ignore;
+      if Sys.command ("make") <> 0 then
+	failwith ("Could not build " ^ p.id);
+      if Sys.command ("OCAMLFIND_DESTDIR="^odb_home^"/lib make install") <> 0 then
+	failwith ("Could not install package " ^ p.id);
+    end
+      Sys.chdir odb_home;
     if cleanup then Sys.command ("rm -rf " ^ install_dir) |> ignore;
   end
 
