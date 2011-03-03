@@ -6,6 +6,7 @@
 let webroot = "http://mutt.cse.msu.edu:8081/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let cleanup = false
+let sudo = ref false (* todo: find a way to set this *)
 
 open Printf
 open Str
@@ -70,21 +71,27 @@ let install p =
       Unix.unlink tb;
 
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-    match dirs with [] -> () | h::_ -> Sys.chdir h;
+    (match dirs with [] -> () | h::_ -> Sys.chdir h);
+
+    let install_pre = 
+      if get_prop_b p "install_as_root" || !sudo then
+	"sudo "
+      else
+	"OCAMLFIND_DESTDIR="^odb_home^"/lib " in
 
     if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
       if Sys.command ("ocaml setup.ml -configure") <> 0 then
 	failwith ("Could not configure " ^ p.id);
       if Sys.command ("ocaml setup.ml -build") <> 0 then
 	failwith ("Could not build " ^ p.id);
-      if Sys.command ("ocaml setup.ml -install") <> 0 then
+      if Sys.command (install_pre ^ "ocaml setup.ml -install") <> 0 then
 	failwith ("Could not install package " ^ p.id);
     end else begin
       if Sys.file_exists "configure" then
 	Sys.command ("sh configure") |> ignore;
       if Sys.command ("make") <> 0 then
 	failwith ("Could not build " ^ p.id);
-      if Sys.command ("OCAMLFIND_DESTDIR="^odb_home^"/lib make install") <> 0 then
+      if Sys.command (install_pre ^ "make install") <> 0 then
 	failwith ("Could not install package " ^ p.id);
     end;
     Sys.chdir odb_home;
