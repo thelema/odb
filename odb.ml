@@ -73,6 +73,8 @@ let install p =
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
 
+    let config_pre = " --prefix " ^ odb_home in
+
     let install_pre = 
       if get_prop_b p "install_as_root" || !sudo then
 	"sudo "
@@ -80,7 +82,7 @@ let install p =
 	"OCAMLFIND_DESTDIR="^odb_home^"/lib " in
 
     if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
-      if Sys.command ("ocaml setup.ml -configure") <> 0 then
+      if Sys.command ("ocaml setup.ml -configure" ^ config_pre) <> 0 then
 	failwith ("Could not configure " ^ p.id);
       if Sys.command ("ocaml setup.ml -build") <> 0 then
 	failwith ("Could not build " ^ p.id);
@@ -88,7 +90,7 @@ let install p =
 	failwith ("Could not install package " ^ p.id);
     end else begin
       if Sys.file_exists "configure" then
-	Sys.command ("sh configure") |> ignore;
+	Sys.command ("sh configure" ^ config_pre) |> ignore;
       if Sys.command ("make") <> 0 then
 	failwith ("Could not build " ^ p.id);
       if Sys.command (install_pre ^ "make install") <> 0 then
