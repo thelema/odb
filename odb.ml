@@ -48,13 +48,21 @@ let get_info id = deps_uri id |> http_get |> to_alist
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id=id; props=get_info id} 
 
-let get_tarball p = (* TODO: make efficient *)
+let get_tarball p =
   let fn = Filename.temp_file "odb" ".tgz" in
   tarball_uri p |> http_get_fn ~silent:false ~fn:fn;
   fn
-  (* returns the filename the tarball is stored in *)
   
-let has_dep p = Sys.command ("ocamlfind query " ^ p.id) = 0 || Sys.command ("which " ^ p.id) = 0
+let has_dep p = 
+  let is_library = get_prop_b p "is_library" in
+  let is_program = get_prop_b p "is_program" in
+  if is_library || is_program then 
+    (is_library && Sys.command ("ocamlfind query " ^ p.id) = 0) 
+    || (is_program && Sys.command ("which " ^ p.id) = 0)
+  else
+    Sys.command ("ocamlfind query " ^ p.id) = 0 
+    || Sys.command ("which " ^ p.id) = 0
+
 let get_deps p = get_prop ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map to_pkg
 let rec all_deps p = 
   let ds = get_deps p |> List.filter (has_dep |- not) in
