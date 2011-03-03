@@ -4,8 +4,9 @@ Odb aims to be 80% solution for automated ocaml package installation.
 
 ### Setup
 
-Packages will be installed by default to `~/.odb/lib`, so add this entry to
-your `/etc/ocamlfind.conf` path.  (todo: install as root, conf entry reminder)
+Packages will be installed by default to `~/.odb/lib`, so add this
+entry to your `/etc/ocamlfind.conf` path or set the environment
+variable `OCAMLPATH=~/.odb/lib`.
 
 The latest version can be downloaded directly from github with the following command: 
     curl -O https://github.com/thelema/odb/raw/master/odb.ml
