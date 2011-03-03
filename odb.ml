@@ -1,15 +1,33 @@
-(* ocamlfind ocamlopt -linkpkg -package str,netclient -g -w Z odb.ml -o odb *)
+#use "topfind";;
+#require "str";;
+#require "unix";;
+
 let webroot = "http://mutt.cse.msu.edu:8081/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let cleanup = false
 
-open Http_client.Convenience
 open Printf
 open Str
-
 let (|>) x f = f x
 let (|-) f g x = g (f x)
 let tap f x = f x; x
+
+
+let http_get_fn ?(silent=true) uri ~fn =
+  let s = if silent then " -s" else "" in
+  if Sys.command ("curl --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then 
+    failwith ("Curl failed to get " ^ uri)
+
+let http_get uri =
+  let fn = Filename.temp_file "odb" ".info" in
+  http_get_fn uri ~fn;
+  let ic = open_in fn in
+  let len = in_channel_length ic in
+  let ret = String.create len in
+  really_input ic ret 0 len;
+  close_in ic;
+  Unix.unlink fn;
+  ret
 
 type pkg = {id: string; mutable props: (string * string) list}
 type dep_tree = N of pkg * dep_tree list
@@ -22,16 +40,14 @@ let deps_uri id = webroot ^ "pkg/info/" ^ id
 
 
 let to_alist = Str.split (Str.regexp "\n") |- List.filter (fun s -> String.contains s '=') |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with [k;v] -> (k,v) | _ -> failwith ("Bad line in alist: " ^ s))
-let get_info id = deps_uri id |> tap (printf "uri:%s\n") |> http_get |> to_alist
+let get_info id = deps_uri id |> http_get |> to_alist
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id=id; props=get_info id} 
 
 let get_tarball p = (* TODO: make efficient *)
-  let tarball_contents = tarball_uri p |> http_get in
-  let fn,oc = Filename.open_temp_file "odb" ".tgz" in
-  output_string oc tarball_contents;
-  close_out oc;
+  let fn = Filename.temp_file "odb" ".tgz" in
+  tarball_uri p |> http_get_fn ~silent:false ~fn:fn;
   fn
   (* returns the filename the tarball is stored in *)
   
@@ -42,14 +58,15 @@ let rec all_deps p =
   N (p, List.map all_deps ds)
 
 let install p = 
-    (*  if true then printf "Install: %s\n" p.id else  *)
   begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
     if Sys.command ("tar -zxvf " ^ tb) <> 0 then 
-      failwith ("Could not extract tarball for " ^ p.id);
+      failwith ("Could not extract tarball for " ^ p.id)
+    else
+      Unix.unlink tb;
 
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     match dirs with [] -> () | h::_ -> Sys.chdir h;
@@ -90,4 +107,5 @@ let () =
     print_string "Available packages: ";
     deps_uri "" |> http_get |> cleanup_list |> print_endline
   ) else (* install listed packages *)
-    Sys.argv |> Array.iter (to_pkg |- install_dep);
+    Sys.argv |> Array.iteri (fun i p -> if i = 0 then () else to_pkg p |> install_dep)
+;;
