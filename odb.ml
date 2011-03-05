@@ -95,6 +95,11 @@ let install ?(force=false) p =
 	failwith ("Could not build " ^ p.id);
       if Sys.command (install_pre ^ "ocaml setup.ml -install") <> 0 then
 	failwith ("Could not install package " ^ p.id);
+    end else if Sys.file_exists "OMakefile" then begin
+      if Sys.command ("omake") <> 0 then
+	failwith ("Could not build " ^ p.id);
+      if Sys.command (install_pre ^ "omake install") <> 0 then
+	failwith ("Could not install package " ^ p.id);      
     end else begin
       if Sys.file_exists "configure" then
 	if Sys.command ("sh configure" ^ config_opt) <> 0 then
