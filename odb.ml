@@ -6,8 +6,9 @@
 let webroot = "http://mutt.cse.msu.edu:8081/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
+let build_dir = ref odb_home
 let cleanup = ref false
-let sudo = ref false
+let sudo = ref (Unix.geteuid () = 0)
 let to_install = ref []
 
 open Printf
@@ -16,6 +17,7 @@ open Arg
 let (|>) x f = f x
 let (|-) f g x = g (f x)
 let tap f x = f x; x
+let (//) x y = if x = "" then y else x
 
 let push_install s = to_install := s :: !to_install
 let cmd_line = [
@@ -64,25 +66,43 @@ let get_tarball p =
   tarball_uri p |> http_get_fn ~silent:false ~fn:fn;
   fn
   
-let has_dep p = 
+type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
+type ver_req = cmp * int list
+type dep = pkg * ver_req option
+
+let rec list_cmp = function [],[] -> 0 | 0::t, [] -> list_cmp (t,[]) | [], 0::t -> list_cmp ([],t) | _::_,[] -> 1 | [], _::_ -> -1 | (x::xt), (y::yt) when x=y -> list_cmp (xt, yt) | (x::_), (y::_) -> compare (x:int) y
+let ver_sat req v2 = match req with None -> true | Some (GE, v1) -> list_cmp (v1, v2) >= 0 | Some (GT, v1) -> list_cmp (v1, v2) > 0 | Some (EQ, v1) -> list_cmp (v1, v2) = 0
+let parse_ver v = split (Str.regexp_string ".") v |> List.map int_of_string
+
+let has_dep (p,ver_req) = 
   let is_library = get_prop_b p "is_library" in
   let is_program = get_prop_b p "is_program" in
+  let test_lib () = 
+    Sys.command ("ocamlfind query -format %v" ^ p.id ^ " > ocaml-ver") = 0 && 
+      open_in "ocaml-ver" |> input_line |> parse_ver |> ver_sat ver_req
+  in
+  let test_prog () = Sys.command ("which " ^ p.id) = 0 in
   if is_library || is_program then 
-    (is_library && Sys.command ("ocamlfind query " ^ p.id) = 0) 
-    || (is_program && Sys.command ("which " ^ p.id) = 0)
-  else
-    Sys.command ("ocamlfind query " ^ p.id) = 0 
-    || Sys.command ("which " ^ p.id) = 0
-
-let get_deps p = get_prop ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map to_pkg
+    (is_library && test_lib ()) || (is_program && test_prog ())
+  else test_lib () || test_prog ();;
+let parse_vreq vr = 
+  if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (string_after vr 2))
+  else if vr.[0] = '>' then (GT, parse_ver (string_after vr 1))
+  else if vr.[0] = '=' then (EQ, parse_ver (string_after vr 1))
+  else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
+let make_dep str = 
+  match bounded_split (regexp " *( *") str 2 with
+    | [pkg; vreq] -> to_pkg str, Some (parse_vreq vreq)
+    | _ -> to_pkg str, None
+let get_deps p = get_prop ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
 let rec all_deps p = 
   let ds = get_deps p |> List.filter (has_dep |- not) in
-  N (p, List.map all_deps ds)
+  N (p, List.map (fst |- all_deps) ds)
 
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then failwith err
 
 let install ?(force=false) p = 
-  if not force && has_dep p then () else
+  if not force && has_dep (p,None) then () else
   begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
@@ -110,18 +130,19 @@ let install ?(force=false) p =
     end else if Sys.file_exists "OMakefile" then begin
       run_or ~cmd:"omake" ~err:build_fail;
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
-    end else begin
+    end else (* try [./configure &&] make && make install *) begin
       if Sys.file_exists "configure" then
 	run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
       run_or ~cmd:"make" ~err:build_fail;
       run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     end;
     Sys.chdir odb_home;
-    if not (has_dep p) then (
-      print_endline ("Failure installing package: " ^ p.id ^ " - installed package is not available to the system");
-      print_endline ("Either add "^odb_home^"/bin to your PATH or");
-      print_endline ("add "^odb_lib^" to your OCAMLPATH");
-      failwith "Exiting"
+    if not (has_dep (p,None)) then (
+      print_endline ("Problem with installed package: " ^ p.id);
+      print_endline ("Installed package is not available to the system");
+      print_endline ("Make sure "^odb_home^"/bin is in your PATH");
+      print_endline ("and "^odb_lib^" is in your OCAMLPATH");
+      exit 0;
     ) else
       print_endline ("Successfully installed " ^ p.id);
   end
@@ -140,11 +161,15 @@ let cleanup_list str =
   Str.split (Str.regexp "<td class=\"n\">") str |> List.tl |> List.tl |> List.map get_pkg |> String.concat " "
 
 let () = 
-  if not (Sys.file_exists odb_home) then Unix.mkdir odb_home 0o755;
-  if not (Sys.file_exists odb_lib) then Unix.mkdir odb_lib 0o755;
-  Sys.chdir odb_home;
+  if !sudo then (
+    build_dir := Sys.getenv "TEMP" // Sys.getenv "TMP" // "/tmp"
+  ) else (
+    if not (Sys.file_exists odb_home) then Unix.mkdir odb_home 0o755;
+    if not (Sys.file_exists odb_lib) && not !sudo then Unix.mkdir odb_lib 0o755;
+  );
+  Sys.chdir !build_dir;
   if !cleanup then
-    Sys.command ("rm -rf install*") |> ignore;  
+    Sys.command ("rm -rf install-*") |> ignore;  
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
     print_string "Available packages: ";
     deps_uri "" |> http_get |> cleanup_list |> print_endline
