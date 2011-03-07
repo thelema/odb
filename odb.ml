@@ -6,15 +6,26 @@
 let webroot = "http://mutt.cse.msu.edu:8081/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
-let cleanup = false
-let sudo = ref false (* todo: find a way to set this *)
+let cleanup = ref false
+let sudo = ref false
+let to_install = ref []
 
 open Printf
 open Str
+open Arg
 let (|>) x f = f x
 let (|-) f g x = g (f x)
 let tap f x = f x; x
 
+let push_install s = to_install := s :: !to_install
+let cmd_line = [
+  "--clean", Set cleanup, 
+  "Cleanup downloaded tarballs and install folders";
+  "--sudo", Set sudo,
+  "Switch to root for installs";
+]
+		
+let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
 
 let http_get_fn ?(silent=true) uri ~fn =
   let s = if silent then " -s" else "" in
@@ -68,6 +79,8 @@ let rec all_deps p =
   let ds = get_deps p |> List.filter (has_dep |- not) in
   N (p, List.map all_deps ds)
 
+let run_or ~cmd ~err = if Sys.command cmd <> 0 then failwith err
+
 let install ?(force=false) p = 
   if not force && has_dep p then () else
   begin
@@ -75,10 +88,8 @@ let install ?(force=false) p =
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
-    if Sys.command ("tar -zxvf " ^ tb) <> 0 then 
-      failwith ("Could not extract tarball for " ^ p.id)
-    else
-      if cleanup then Unix.unlink tb;
+    run_or ~cmd:("tar -zxvf " ^ tb) 
+      ~err:("Could not extract tarball for " ^ p.id);
 
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
@@ -88,29 +99,24 @@ let install ?(force=false) p =
     let install_pre = 
       if as_root then "sudo " else "OCAMLFIND_DESTDIR="^odb_lib^" " in
 
+    let config_fail = ("Could not configure " ^ p.id)  in
+    let build_fail = ("Could not build " ^ p.id) in
+    let install_fail = ("Could not install package " ^ p.id) in
+
     if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
-      if Sys.command ("ocaml setup.ml -configure" ^ config_opt) <> 0 then
-	failwith ("Could not configure " ^ p.id);
-      if Sys.command ("ocaml setup.ml -build") <> 0 then
-	failwith ("Could not build " ^ p.id);
-      if Sys.command (install_pre ^ "ocaml setup.ml -install") <> 0 then
-	failwith ("Could not install package " ^ p.id);
+      run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+      run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+      run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
     end else if Sys.file_exists "OMakefile" then begin
-      if Sys.command ("omake") <> 0 then
-	failwith ("Could not build " ^ p.id);
-      if Sys.command (install_pre ^ "omake install") <> 0 then
-	failwith ("Could not install package " ^ p.id);      
+      run_or ~cmd:"omake" ~err:build_fail;
+      run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     end else begin
       if Sys.file_exists "configure" then
-	if Sys.command ("sh configure" ^ config_opt) <> 0 then
-	  failwith ("Could not configure " ^ p.id);
-      if Sys.command ("make") <> 0 then
-	failwith ("Could not build " ^ p.id);
-      if Sys.command (install_pre ^ "make install") <> 0 then
-	failwith ("Could not install package " ^ p.id);
+	run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
+      run_or ~cmd:"make" ~err:build_fail;
+      run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     end;
     Sys.chdir odb_home;
-    if cleanup then Sys.command ("rm -rf " ^ install_dir) |> ignore;
     if not (has_dep p) then (
       print_endline ("Failure installing package: " ^ p.id ^ " - installed package is not available to the system");
       print_endline ("Either add "^odb_home^"/bin to your PATH or");
@@ -120,9 +126,12 @@ let install ?(force=false) p =
       print_endline ("Successfully installed " ^ p.id);
   end
 
-let install_dep ?force p =
-  let rec loop (N (p,deps)) = List.iter loop deps; install ?force p in
-  all_deps p |> loop 
+let install_dep p =
+  let rec loop ~force (N (p,deps)) = 
+    List.iter (loop ~force:false) deps; 
+    install ~force p 
+  in
+  all_deps p |> loop ~force:true
 
 let pkg_rx = Str.regexp "<a href=.[-a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
 let get_pkg str = 
@@ -134,9 +143,11 @@ let () =
   if not (Sys.file_exists odb_home) then Unix.mkdir odb_home 0o755;
   if not (Sys.file_exists odb_lib) then Unix.mkdir odb_lib 0o755;
   Sys.chdir odb_home;
-  if Array.length Sys.argv = 1 then ( (* list packages to install *)
+  if !cleanup then
+    Sys.command ("rm -rf install*") |> ignore;  
+  if !to_install = [] && not !cleanup then ( (* list packages to install *)
     print_string "Available packages: ";
     deps_uri "" |> http_get |> cleanup_list |> print_endline
   ) else (* install listed packages *)
-    Sys.argv |> Array.iteri (fun i p -> if i = 0 then () else to_pkg p |> install_dep ~force:true)
+    List.iter (to_pkg |- install_dep) !to_install
 ;;
