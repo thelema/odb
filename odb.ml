@@ -10,6 +10,8 @@ let build_dir = ref odb_home
 let cleanup = ref false
 let sudo = ref (Unix.geteuid () = 0)
 let to_install = ref []
+let force = ref false
+let force_all = ref false
 
 open Printf
 open Str
@@ -25,6 +27,10 @@ let cmd_line = [
   "Cleanup downloaded tarballs and install folders";
   "--sudo", Set sudo,
   "Switch to root for installs";
+  "--force", Set force,
+  "Force (re)installation of packages named";
+  "--force-all", Set force_all,
+  "Force (re)installation of dependencies";
 ]
 		
 let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
@@ -86,13 +92,14 @@ let has_dep (p,ver_req) =
     (is_library && test_lib ()) || (is_program && test_prog ())
   else test_lib () || test_prog ();;
 let parse_vreq vr = 
-  if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (string_after vr 2))
-  else if vr.[0] = '>' then (GT, parse_ver (string_after vr 1))
-  else if vr.[0] = '=' then (EQ, parse_ver (string_after vr 1))
+  let l = String.length vr in
+  if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
+  else if vr.[0] = '>' then (GT, parse_ver (String.sub vr 1 (l-2)))
+  else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
   else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
 let make_dep str = 
   match bounded_split (regexp " *( *") str 2 with
-    | [pkg; vreq] -> to_pkg str, Some (parse_vreq vreq)
+    | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
     | _ -> to_pkg str, None
 let get_deps p = get_prop ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
 let rec all_deps p = 
@@ -102,8 +109,9 @@ let rec all_deps p =
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then failwith err
 
 let install ?(force=false) p = 
-  if not force && has_dep (p,None) then () else
-  begin
+  if not force && has_dep (p,None) then (
+    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall")
+  ) else begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
@@ -149,10 +157,10 @@ let install ?(force=false) p =
 
 let install_dep p =
   let rec loop ~force (N (p,deps)) = 
-    List.iter (loop ~force:false) deps; 
+    List.iter (loop ~force:!(force_all)) deps; 
     install ~force p 
   in
-  all_deps p |> loop ~force:true
+  all_deps p |> loop ~force:(!force || !force_all)
 
 let pkg_rx = Str.regexp "<a href=.[-a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
 let get_pkg str = 
