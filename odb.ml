@@ -97,8 +97,10 @@ let parse_vreq vr =
   else if vr.[0] = '>' then (GT, parse_ver (String.sub vr 1 (l-2)))
   else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
   else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
+let whitespace_rx = regexp "[ \t]+"
 let make_dep str = 
-  match bounded_split (regexp " *( *") str 2 with
+  let str = global_replace whitespace_rx "" str in
+  match bounded_split (regexp_string "(") str 2 with
     | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
     | _ -> to_pkg str, None
 let get_deps p = get_prop ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
@@ -106,18 +108,18 @@ let rec all_deps p =
   let ds = get_deps p |> List.filter (has_dep |- not) in
   N (p, List.map (fst |- all_deps) ds)
 
-let run_or ~cmd ~err = if Sys.command cmd <> 0 then failwith err
+let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
 let install ?(force=false) p = 
   if not force && has_dep (p,None) then (
-    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall")
+    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
   ) else begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
     run_or ~cmd:("tar -zxvf " ^ tb) 
-      ~err:("Could not extract tarball for " ^ p.id);
+      ~err:(Failure ("Could not extract tarball for " ^ p.id));
 
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
@@ -127,9 +129,9 @@ let install ?(force=false) p =
     let install_pre = 
       if as_root then "sudo " else "OCAMLFIND_DESTDIR="^odb_lib^" " in
 
-    let config_fail = ("Could not configure " ^ p.id)  in
-    let build_fail = ("Could not build " ^ p.id) in
-    let install_fail = ("Could not install package " ^ p.id) in
+    let config_fail = Failure ("Could not configure " ^ p.id)  in
+    let build_fail = Failure ("Could not build " ^ p.id) in
+    let install_fail = Failure ("Could not install package " ^ p.id) in
 
     if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
