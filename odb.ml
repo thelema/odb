@@ -98,7 +98,7 @@ let has_dep (p,ver_req) =
   if is_library || is_program then 
     (is_library && test_lib ()) || (is_program && test_prog ())
   else test_lib () || test_prog ();;
-let has_dep (p,v as x) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
+let has_dep (p,v) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
 let parse_vreq vr = 
   let l = String.length vr in
   if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
