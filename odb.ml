@@ -79,9 +79,12 @@ let get_tarball p =
 type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
 type ver_req = cmp * int list
 type dep = pkg * ver_req option
+let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
 
 let rec list_cmp = function [],[] -> 0 | 0::t, [] -> list_cmp (t,[]) | [], 0::t -> list_cmp ([],t) | _::_,[] -> 1 | [], _::_ -> -1 | (x::xt), (y::yt) when x=y -> list_cmp (xt, yt) | (x::_), (y::_) -> compare (x:int) y
-let ver_sat req v2 = match req with None -> v2 <> [] | Some (GE, v1) -> list_cmp (v1, v2) >= 0 | Some (GT, v1) -> list_cmp (v1, v2) > 0 | Some (EQ, v1) -> list_cmp (v1, v2) = 0
+let ver_sat req v2 = v2 <> [] && match req with 
+  | None -> true 
+  | Some (c, v1) -> comp (list_cmp (v1, v2)) 0 c
 let parse_ver v = split (Str.regexp_string ".") v |> List.map int_of_string
 
 let has_dep (p,ver_req) = 
