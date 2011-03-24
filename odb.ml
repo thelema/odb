@@ -12,6 +12,7 @@ let sudo = ref (Unix.geteuid () = 0)
 let to_install = ref []
 let force = ref false
 let force_all = ref false
+let debug = ref false
 
 open Printf
 open Str
@@ -19,6 +20,7 @@ open Arg
 let (|>) x f = f x
 let (|-) f g x = g (f x)
 let tap f x = f x; x
+let dtap f x = if !debug then f x; x
 let (//) x y = if x = "" then y else x
 
 let push_install s = to_install := s :: !to_install
@@ -31,6 +33,8 @@ let cmd_line = [
   "Force (re)installation of packages named";
   "--force-all", Set force_all,
   "Force (re)installation of dependencies";
+  "--debug", Set debug,
+  "Debug package dependencies";
 ]
 		
 let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
@@ -91,6 +95,7 @@ let has_dep (p,ver_req) =
   if is_library || is_program then 
     (is_library && test_lib ()) || (is_program && test_prog ())
   else test_lib () || test_prog ();;
+let has_dep (p,v as x) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
 let parse_vreq vr = 
   let l = String.length vr in
   if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
