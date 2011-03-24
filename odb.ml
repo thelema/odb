@@ -91,7 +91,7 @@ let has_dep (p,ver_req) =
   let is_library = get_prop_b p "is_library" in
   let is_program = get_prop_b p "is_program" in
   let test_lib () = 
-    Sys.command ("ocamlfind query -format %v" ^ p.id ^ " > ocaml-ver") = 0 && 
+    Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
       open_in "ocaml-ver" |> input_line |> parse_ver |> ver_sat ver_req
   in
   let test_prog () = Sys.command ("which " ^ p.id) = 0 in
