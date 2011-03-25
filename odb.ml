@@ -40,7 +40,7 @@ let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
 module Http = struct 
   let get_fn ?(silent=true) uri ~fn =
     let s = if silent then " -s" else "" in
-    if Sys.command ("curl --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then 
+    if Sys.command ("curl -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then 
       failwith ("Curl failed to get " ^ uri)
 	
   let get uri =
