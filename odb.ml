@@ -3,7 +3,7 @@
 #require "str";;
 #require "unix";;
 
-let webroot = "http://mutt.cse.msu.edu:8081/"
+let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
 let build_dir = ref odb_home
