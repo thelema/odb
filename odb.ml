@@ -77,14 +77,21 @@ module PL = struct
 end
 
 (* locations of files in website *)
-let tarball_uri p = webroot ^ "pkg/" ^ (PL.get ~p ~n:"tarball")
+let tarball_uri ?(backup=false) p = 
+  if backup then
+    webroot ^ "pkg/backup/" ^ (PL.get ~p ~n:"tarball")
+  else 
+    webroot ^ "pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id = webroot ^ "pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
 let get_info id = deps_uri id |> Http.get |> PL.of_string
 let get_tarball p =
   let fn = Filename.temp_file "odb" ".tgz" in
-  tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
+  ( try 
+      tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
+    with Failure -> 
+      tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn; );
   fn
 
 (* TODO: verify no bad chars to make command construction safer *)
