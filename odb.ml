@@ -90,7 +90,7 @@ let get_tarball p =
   let fn = Filename.temp_file "odb" ".tgz" in
   ( try 
       tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
-    with Failure -> 
+    with Failure _ -> 
       tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn; );
   fn
 
