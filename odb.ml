@@ -65,7 +65,7 @@ let tarball_uri p = webroot ^ "pkg/" ^ (get_prop ~p ~n:"tarball")
 let deps_uri id = webroot ^ "pkg/info/" ^ id
 
 
-let to_alist = Str.split (Str.regexp "\n") |- List.filter (fun s -> String.contains s '=') |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with [k;v] -> (k,v) | _ -> failwith ("Bad line in alist: " ^ s))
+let to_alist = Str.split (Str.regexp "\n") |- List.filter (fun s -> String.contains s '=') |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with [k;v] -> (k,v) | [k] -> (k,"") | _ -> failwith ("Bad line in alist: " ^ s))
 let get_info id = deps_uri id |> http_get |> to_alist
 
 (* TODO: verify no bad chars to make command construction safer *)
