@@ -148,6 +148,8 @@ end
 
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
+type build_type = Oasis | Omake | Make
+
 (* Installing a package *)
 let install ?(force=false) p = 
   if not force && Dep.has_dep (p,None) then (
@@ -163,28 +165,33 @@ let install ?(force=false) p =
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
 
+    let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" then Omake else Make in
+
     let as_root = PL.get_b p "install_as_root" || !sudo in
     let config_opt = if as_root then "" else " --prefix " ^ odb_home in
     let install_pre = 
-      if as_root then "sudo " else "OCAMLFIND_DESTDIR="^odb_lib^" " in
+      if as_root then "sudo " else 
+	(if buildtype = Oasis then "OCAMLFIND_LDCONF=ignore " else "")
+	  ^ "OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
-    if Sys.file_exists "setup.ml" then begin (* OASIS BUILD *)
-      run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
-      run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-      run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
-    end else if Sys.file_exists "OMakefile" then begin
-      run_or ~cmd:"omake" ~err:build_fail;
-      run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
-    end else (* try [./configure &&] make && make install *) begin
-      if Sys.file_exists "configure" then
-	run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
-      run_or ~cmd:"make" ~err:build_fail;
-      run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
-    end;
+    ( match buildtype with
+      | Oasis ->
+	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+      | Omake ->
+	run_or ~cmd:"omake" ~err:build_fail;
+	run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
+      | Make ->
+	if Sys.file_exists "configure" then
+	  run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
+	run_or ~cmd:"make" ~err:build_fail;
+	run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
+    );
     Sys.chdir odb_home;
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
