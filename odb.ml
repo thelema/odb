@@ -3,6 +3,7 @@
 #require "str";;
 #require "unix";;
 
+(* Configurable parameters, some by command line *)
 let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
@@ -14,6 +15,8 @@ let force = ref false
 let force_all = ref false
 let debug = ref false
 
+
+(* micro-stdlib *)
 open Printf
 open Str
 open Arg
@@ -23,6 +26,8 @@ let tap f x = f x; x
 let dtap f x = if !debug then f x; x
 let (//) x y = if x = "" then y else x
 
+
+(* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
 let cmd_line = [
   "--clean", Set cleanup, 
@@ -39,12 +44,14 @@ let cmd_line = [
 		
 let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
 
+(* micro-http library *)
 let http_get_fn ?(silent=true) uri ~fn =
   let s = if silent then " -s" else "" in
   if Sys.command ("curl --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then 
     failwith ("Curl failed to get " ^ uri)
 
 let http_get uri =
+  if !debug then printf "Getting URI: %s" uri;
   let fn = Filename.temp_file "odb" ".info" in
   http_get_fn uri ~fn;
   let ic = open_in fn in
@@ -55,27 +62,31 @@ let http_get uri =
   Unix.unlink fn;
   ret
 
+(* micro-association list library *)
 type pkg = {id: string; mutable props: (string * string) list}
 type dep_tree = N of pkg * dep_tree list
 
 let get_prop ~p ~n = try List.assoc n p.props with Not_found -> ""
 let get_prop_b ~p ~n = try List.assoc n p.props |> bool_of_string with Not_found -> false
 let get_prop_i ~p ~n = try List.assoc n p.props |> int_of_string with Not_found -> -1
+
+let to_alist = Str.split (Str.regexp "\n") |- List.filter (fun s -> String.contains s '=') |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with [k;v] -> (k,v) | [k] -> (k,"") | _ -> failwith ("Bad line in alist: " ^ s))
+
+(* locations of files in website *)
 let tarball_uri p = webroot ^ "pkg/" ^ (get_prop ~p ~n:"tarball")
 let deps_uri id = webroot ^ "pkg/info/" ^ id
 
-
-let to_alist = Str.split (Str.regexp "\n") |- List.filter (fun s -> String.contains s '=') |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with [k;v] -> (k,v) | [k] -> (k,"") | _ -> failwith ("Bad line in alist: " ^ s))
+(* wrapper functions to get data from server *)
 let get_info id = deps_uri id |> http_get |> to_alist
-
-(* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = {id=id; props=get_info id} 
-
 let get_tarball p =
   let fn = Filename.temp_file "odb" ".tgz" in
   tarball_uri p |> http_get_fn ~silent:false ~fn:fn;
   fn
-  
+
+(* TODO: verify no bad chars to make command construction safer *)
+let to_pkg id = {id=id; props=get_info id} 
+
+(* Dependency comparison library *)  
 type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
 type ver_req = cmp * int list
 type dep = pkg * ver_req option
@@ -118,6 +129,7 @@ let rec all_deps p =
 
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
+(* Installing a package *)
 let install ?(force=false) p = 
   if not force && has_dep (p,None) then (
     print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
@@ -172,12 +184,17 @@ let install_dep p =
   in
   all_deps p |> loop ~force:(!force || !force_all)
 
-let pkg_rx = Str.regexp "<a href=.[-a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
+(* Parse directory listing from server to get list of packages *)
+let pkg_rx = Str.regexp "<a href=.[-\\./a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
 let get_pkg str = 
-  if Str.string_match pkg_rx str 0 then Str.matched_group 1 str else failwith"bad html"
+  if Str.string_match pkg_rx str 0 
+  then Str.matched_group 1 str 
+  else failwith ("bad html chunk: " ^ str)
 let cleanup_list str =
-  Str.split (Str.regexp "<td class=\"n\">") str |> List.tl |> List.tl |> List.map get_pkg |> String.concat " "
+  Str.split (Str.regexp "<td class=.n.>") str |> List.tl |> List.tl 
+    |> List.map get_pkg |> String.concat " "
 
+(** MAIN **)
 let () = 
   if !sudo then (
     build_dir := Sys.getenv "TEMP" // Sys.getenv "TMP" // "/tmp"
@@ -190,7 +207,7 @@ let () =
     Sys.command ("rm -rf install-*") |> ignore;  
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
     print_string "Available packages: ";
-    deps_uri "" |> http_get |> cleanup_list |> print_endline
+    (webroot ^ "pkg/info") |> http_get |> cleanup_list |> print_endline
   ) else (* install listed packages *)
     List.iter (to_pkg |- install_dep) !to_install
 ;;
