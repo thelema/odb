@@ -14,6 +14,7 @@ let to_install = ref []
 let force = ref false
 let force_all = ref false
 let debug = ref false
+let repository = ref "stable"
 
 (* micro-stdlib *)
 open Printf
@@ -32,9 +33,13 @@ let cmd_line =
     "--sudo", Set sudo, "Switch to root for installs";
     "--force", Set force, "Force (re)installation of packages named";
     "--force-all", Set force_all, "Force (re)installation of dependencies";
-    "--debug", Set debug, "Debug package dependencies"; ]
+    "--debug", Set debug, "Debug package dependencies"; 
+    "--repo", Set_string repository, "Set repository [stable, testing, unstable]";
+]
     
 let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
+
+let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Repository must be stable, testing or unstable, exiting."; exit 1)
 
 (* micro-http library *)
 module Http = struct 
@@ -79,9 +84,9 @@ end
 (* locations of files in website *)
 let tarball_uri ?(backup=false) p = 
   if backup then
-    webroot ^ "pkg/backup/" ^ (PL.get ~p ~n:"tarball")
+    webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
   else 
-    webroot ^ "pkg/" ^ (PL.get ~p ~n:"tarball")
+    webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id = webroot ^ "pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
