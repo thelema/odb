@@ -49,7 +49,7 @@ module Http = struct
       failwith ("Curl failed to get " ^ uri)
 	
   let get uri =
-    if !debug then printf "Getting URI: %s" uri;
+    if !debug then printf "Getting URI: %s\n%!" uri;
     let fn = Filename.temp_file "odb" ".info" in
     get_fn uri ~fn;
     let ic = open_in fn in
@@ -87,7 +87,7 @@ let tarball_uri ?(backup=false) p =
     webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
   else 
     webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
-let deps_uri id = webroot ^ "pkg/info/" ^ id
+let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
 let get_info id = deps_uri id |> Http.get |> PL.of_string
@@ -215,17 +215,6 @@ let install_dep p =
   in
   Dep.all_deps p |> loop ~force:(!force || !force_all)
 
-(* Parse directory listing from server to get list of packages *)
-(* Dirty, dirty code, shield your eyes from damage *)
-let pkg_rx = Str.regexp "<a href=.[-\\./a-zA-Z0-9]+.>\\([-a-zA-Z0-9]+\\)</a>"
-let get_pkg str = 
-  if Str.string_match pkg_rx str 0 
-  then Str.matched_group 1 str 
-  else failwith ("bad html chunk: " ^ str)
-let cleanup_list str =
-  Str.split (Str.regexp "<td class=.n.>") str |> List.tl |> List.tl 
-    |> List.map get_pkg |> String.concat " "
-
 (** MAIN **)
 let () = 
   if !sudo then (
@@ -238,8 +227,8 @@ let () =
   if !cleanup then
     Sys.command ("rm -rf install-*") |> ignore;  
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
-    print_string "Available packages: ";
-    (webroot ^ "pkg/info") |> Http.get |> cleanup_list |> print_endline
+    let pkgs = deps_uri "00list" |> Http.get in
+    printf "Available packages: %s\n" pkgs
   ) else (* install listed packages *)
     List.iter (to_pkg |- install_dep) !to_install
 ;;
