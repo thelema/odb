@@ -14,7 +14,7 @@ let to_install = ref []
 let force = ref false
 let force_all = ref false
 let debug = ref false
-let repository = ref "stable"
+let repository = ref "unstable"
 
 (* micro-stdlib *)
 open Printf
@@ -92,7 +92,7 @@ let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 (* wrapper functions to get data from server *)
 let get_info id = deps_uri id |> Http.get |> PL.of_string
 let get_tarball p =
-  let fn = Filename.temp_file "odb" ".tgz" in
+  let fn = PL.get ~p ~n:"tarball" in
   ( try 
       tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
     with Failure _ -> 
@@ -151,6 +151,16 @@ module Dep = struct
     N (p, List.map (fst |- all_deps) ds)
 end
 
+let extract_cmd fn = 
+  let suff = Filename.check_suffix fn in
+  if suff ".tar.gz" || suff ".tgz" then
+    "tar -zxvf " ^ fn
+  else if suff ".tar.bz2" || suff ".tbz" then
+    "tar -jxvf " ^ fn
+  else if suff ".zip" then
+    "unzip " ^ fn
+  else failwith "Don't know how to extract " ^ fn
+
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
 type build_type = Oasis | Omake | Make
@@ -164,8 +174,9 @@ let install ?(force=false) p =
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
-    run_or ~cmd:("tar -zxvf " ^ tb) 
-      ~err:(Failure ("Could not extract tarball for " ^ p.id));
+    let extract_cmd = extract_cmd tb in
+    run_or ~cmd:extract_cmd
+      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
 
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
