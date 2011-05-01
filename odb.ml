@@ -157,6 +157,8 @@ let extract_cmd fn =
     "tar -zxvf " ^ fn
   else if suff ".tar.bz2" || suff ".tbz" then
     "tar -jxvf " ^ fn
+  else if suff ".tar.xz" || suff ".txz" then
+    "tar -Jxvf " ^ fn
   else if suff ".zip" then
     "unzip " ^ fn
   else failwith "Don't know how to extract " ^ fn
