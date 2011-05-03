@@ -4,7 +4,8 @@
 #require "unix";;
 
 (* Configurable parameters, some by command line *)
-let webroot = "http://oasis.ocamlcore.org/dev/odb/"
+let webroot = "http://oasis.ocamlcore.org/dev/odb/" 
+(*let webroot = "http://mutt.cse.msu.edu:8081/" *)
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
 let build_dir = ref odb_home
@@ -37,7 +38,7 @@ let cmd_line =
     "--repo", Set_string repository, "Set repository [stable, testing, unstable]";
 ]
     
-let () = parse cmd_line push_install "ocaml odb.ml [-sudo] <packages>";;
+let () = parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
 
 let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Repository must be stable, testing or unstable, exiting."; exit 1)
 
@@ -71,7 +72,7 @@ module PL = struct
   let get_b ~p ~n = 
     try List.assoc n p.props |> bool_of_string with Not_found -> false
   let get_i ~p ~n = 
-    try List.assoc n p.props |> int_of_string with Not_found -> -1
+    try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
   let of_string = 
     Str.split (Str.regexp "\n") 
@@ -105,19 +106,28 @@ let to_pkg id = {id=id; props=get_info id}
 (* Dependency comparison library *)  
 module Dep = struct
   type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
-  type ver_req = cmp * int list
+  type ver_comp = Num of int | Str of string
+  type ver = ver_comp list
+  type ver_req = cmp * ver
   type dep = pkg * ver_req option
   let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
 
-  let rec list_cmp = function [],[] -> 0 
-    | 0::t, [] -> list_cmp (t,[]) | [], 0::t -> list_cmp ([],t) 
+  let rec list_cmp : (ver * ver) -> int = function [],[] -> 0 
+    | Num 0::t, [] -> list_cmp (t,[]) | [], Num 0::t -> list_cmp ([],t) 
     | _::_,[] -> 1 | [], _::_ -> -1 
     | (x::xt), (y::yt) when x=y -> list_cmp (xt, yt) 
-    | (x::_), (y::_) -> compare (x:int) y
+    | (Num x::_), (Num y::_) -> compare (x:int) y
+    | (Str x::_), (Str y::_) -> compare (x:string) y
+    | (Num x::_), (Str y::_) -> -1
+    | (Str x::_), (Num y::_) -> 1
   let ver_sat req v2 = v2 <> [] && match req with 
     | None -> true 
     | Some (c, v1) -> comp (list_cmp (v1, v2)) 0 c
-  let parse_ver v = split (Str.regexp_string ".") v |> List.map int_of_string
+  let to_ver_comp = function Delim s -> Str s | Text s -> Num (int_of_string s)
+  let parse_ver v = 
+    try 
+      full_split (regexp_string "[^0-9]+") v |> List.map to_ver_comp
+    with Failure _ -> failwith ("Could not parse version " ^ v)
 
   let test_lib (p, v) = 
     Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
