@@ -1,6 +1,6 @@
 odb: a simple package installer for ocaml
 
-Odb aims to be 80% solution for automated ocaml package installation.
+Odb aims to be an 80% solution for automated ocaml package installation.
 
 ### Setup
 
@@ -14,15 +14,13 @@ The latest version can be downloaded directly from github with the following com
 
 ### Usage
 
-Using odb is very easy. 
+Using odb is very easy. To print a list of available packages, do:
 
     ocaml odb.ml
 
-  Prints a list of packages the server knows about
+Once you've chosen some packages, the following command will install them (and their dependencies):
 
     ocaml odb.ml <packagenames>
-
-  Installs the packages listed (including dependencies)
 
 That's it so far.  Stay tuned for more. (todo: more packages on server)
 
