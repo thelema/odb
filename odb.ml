@@ -16,6 +16,8 @@ let force = ref false
 let force_all = ref false
 let debug = ref false
 let repository = ref "unstable"
+let auto_reinstall = ref false
+let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
 (* micro-stdlib *)
 open Printf
@@ -36,11 +38,12 @@ let cmd_line =
     "--force-all", Set force_all, "Force (re)installation of dependencies";
     "--debug", Set debug, "Debug package dependencies"; 
     "--repo", Set_string repository, "Set repository [stable, testing, unstable]";
+    "--auto-reinstall", Set auto_reinstall, "Auto-reinstall dependent packages on update"
 ]
     
 let () = parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
 
-let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Repository must be stable, testing or unstable, exiting."; exit 1)
+let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1)
 
 (* micro-http library *)
 module Http = struct 
@@ -133,6 +136,15 @@ module Dep = struct
     Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
     open_in "ocaml-ver" |> input_line |> parse_ver |> ver_sat v
 
+  let rec input_all_lines acc ic = 
+    let a = try Some (input_line ic) with End_of_file -> None in
+    match a with Some w -> input_all_lines (w::acc) ic | None -> List.rev acc
+
+  let get_reqs p =
+    if Sys.command ("ocamlfind query -format %p -d " ^ p.id ^ " > odb-req") = 0 then
+      open_in "odb-req" |> input_all_lines []
+    else []
+
   let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
 	
   let has_dep (p,_ as d) = 
@@ -180,7 +192,7 @@ type build_type = Oasis | Omake | Make
 (* Installing a package *)
 let install ?(force=false) p = 
   if not force && Dep.has_dep (p,None) then (
-    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
+    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall"); []
   ) else begin
     let install_dir = "install-" ^ p.id in
     if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
@@ -227,14 +239,25 @@ let install ?(force=false) p =
       print_endline ("Make sure "^odb_home^"/bin is in your PATH");
       print_endline ("and "^odb_lib^" is in your OCAMLPATH");
       exit 0;
-    ) else
-      print_endline ("Successfully installed " ^ p.id);
+    );
+    print_endline ("Successfully installed " ^ p.id);
+    Dep.get_reqs p (* return the reqs *)
   end
 
 let install_dep p =
   let rec loop ~force (N (p,deps)) = 
     List.iter (loop ~force:!(force_all)) deps; 
-    install ~force p 
+    let rec inner_loop p = 
+      let reqs_imm = install ~force p in
+      if !auto_reinstall then 
+	List.iter 
+	  (fun p -> try to_pkg p |> inner_loop with _ -> 
+	    reqs := p :: !reqs) 
+	  reqs_imm
+      else 
+	reqs := reqs_imm @ !reqs;
+    in
+    inner_loop p
   in
   Dep.all_deps p |> loop ~force:(!force || !force_all)
 
@@ -252,6 +275,13 @@ let () =
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
     let pkgs = deps_uri "00list" |> Http.get in
     printf "Available packages: %s\n" pkgs
-  ) else (* install listed packages *)
-    List.iter (to_pkg |- install_dep) !to_install
+  ) else ( (* install listed packages *)
+    List.iter (to_pkg |- install_dep) !to_install;
+    if !reqs <> [] then 
+      print_endline "Some packages depend on the just installed packages and should be re-installed.";
+      print_endline "The command to do this is:";
+      print_string "ocaml odb.ml -force ";
+      List.iter (printf "%s ") !reqs;
+      print_newline ();
+    )
 ;;
