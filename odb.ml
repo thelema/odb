@@ -129,8 +129,8 @@ module Dep = struct
   let to_ver_comp = function Delim s -> Str s | Text s -> Num (int_of_string s)
   let parse_ver v = 
     try 
-      full_split (regexp_string "[^0-9]+") v |> List.map to_ver_comp
-    with Failure _ -> failwith ("Could not parse version " ^ v)
+      full_split (regexp "[^0-9]+") v |> List.map to_ver_comp
+    with Failure _ -> failwith ("Could not parse version: " ^ v)
 
   let test_lib (p, v) = 
     Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
