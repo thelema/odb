@@ -15,7 +15,7 @@ let to_install = ref []
 let force = ref false
 let force_all = ref false
 let debug = ref false
-let repository = ref "unstable"
+let repository = ref "testing"
 let auto_reinstall = ref false
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
@@ -141,8 +141,10 @@ module Dep = struct
     match a with Some w -> input_all_lines (w::acc) ic | None -> List.rev acc
 
   let get_reqs p =
+    let p_id_len = String.length p.id in
     if Sys.command ("ocamlfind query -format %p -d " ^ p.id ^ " > odb-req") = 0 then
-      open_in "odb-req" |> input_all_lines []
+      open_in "odb-req" |> input_all_lines [] 
+      |> List.filter (fun r -> String.sub r 0 p_id_len <> p.id)
     else []
 
   let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
@@ -277,11 +279,12 @@ let () =
     printf "Available packages: %s\n" pkgs
   ) else ( (* install listed packages *)
     List.iter (to_pkg |- install_dep) !to_install;
-    if !reqs <> [] then 
+    if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
       print_string "ocaml odb.ml -force ";
       List.iter (printf "%s ") !reqs;
       print_newline ();
     )
+  )
 ;;
