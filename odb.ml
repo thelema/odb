@@ -201,7 +201,9 @@ let install ?(force=false) p =
     print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall"); []
   ) else begin
     let install_dir = "install-" ^ p.id in
-    if not (Sys.file_exists install_dir) then Unix.mkdir install_dir 0o700;
+    if Sys.file_exists install_dir then 
+      Sys.command ("rm -rf " ^ install_dir) |> ignore;
+    Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
     let tb = get_tarball p in
     let extract_cmd = extract_cmd tb in
