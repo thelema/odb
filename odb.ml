@@ -8,9 +8,11 @@ let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 (*let webroot = "http://mutt.cse.msu.edu:8081/" *)
 let odb_home = (Sys.getenv "HOME") ^ "/.odb"
 let odb_lib = odb_home ^ "/lib"
+let odb_stubs = odb_home ^ "/lib/stublibs"
+let odb_bin = odb_home ^ "/bin"
 let build_dir = ref odb_home
 let cleanup = ref false
-let sudo = ref (Unix.geteuid () = 0)
+let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
 let force = ref false
 let force_all = ref false
@@ -28,6 +30,8 @@ let (|-) f g x = g (f x)
 let tap f x = f x; x
 let dtap f x = if !debug then f x; x
 let (//) x y = if x = "" then y else x
+let getenv v = try Sys.getenv v with Not_found -> ""
+let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
@@ -207,14 +211,13 @@ let install ?(force=false) p =
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
 
-    let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" then Omake else Make in
+    let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
     let config_opt = if as_root then "" else " --prefix " ^ odb_home in
     let install_pre = 
       if as_root then "sudo " else 
-	(if buildtype = Oasis then "OCAMLFIND_LDCONF=ignore " else "")
-	  ^ "OCAMLFIND_DESTDIR="^odb_lib^" " in
+	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
@@ -238,9 +241,9 @@ let install ?(force=false) p =
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
       print_endline ("Installed package is not available to the system");
-      print_endline ("Make sure "^odb_home^"/bin is in your PATH");
+      print_endline ("Make sure "^odb_bin^" is in your PATH");
       print_endline ("and "^odb_lib^" is in your OCAMLPATH");
-      exit 0;
+      exit 1;
     );
     print_endline ("Successfully installed " ^ p.id);
     Dep.get_reqs p (* return the reqs *)
@@ -266,10 +269,10 @@ let install_dep p =
 (** MAIN **)
 let () = 
   if !sudo then (
-    build_dir := Sys.getenv "TEMP" // Sys.getenv "TMP" // "/tmp"
+    build_dir := getenv "TEMP" // getenv "TMP" // "/tmp"
   ) else (
-    if not (Sys.file_exists odb_home) then Unix.mkdir odb_home 0o755;
-    if not (Sys.file_exists odb_lib) && not !sudo then Unix.mkdir odb_lib 0o755;
+    mkdir odb_home;
+    if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
   Sys.chdir !build_dir;
   if !cleanup then
@@ -282,9 +285,10 @@ let () =
     if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
-      print_string "ocaml odb.ml -force ";
+      print_string "  ocaml odb.ml -force ";
       List.iter (printf "%s ") !reqs;
       print_newline ();
-    )
+    );
+    (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   )
 ;;
