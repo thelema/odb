@@ -22,7 +22,11 @@ Once you've chosen some packages, the following command will install them (and t
 
     ocaml odb.ml <packagenames>
 
-That's it so far.  Stay tuned for more. (todo: more packages on server)
+If you install a package that uses C stub libraries, you will need to add `$HOME/.odb/lib/stublibs` to your `ocaml/ld.conf` file.  The following command does this:
+
+    echo $HOME/.odb/lib/stublibs | sudo tee -a `ocamlc -where`/ld.conf
+
+
 
 
 ### Requirements
