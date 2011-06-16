@@ -19,6 +19,7 @@ let force_all = ref false
 let debug = ref false
 let repository = ref "testing"
 let auto_reinstall = ref false
+let have_perms = ref false
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
 (* micro-stdlib *)
@@ -38,11 +39,12 @@ let push_install s = to_install := s :: !to_install
 let cmd_line = 
   [ "--clean", Set cleanup, "Cleanup downloaded tarballs and install folders";
     "--sudo", Set sudo, "Switch to root for installs";
+    "--have-perms", Set have_perms, "Don't use --prefix even without sudo";
     "--force", Set force, "Force (re)installation of packages named";
     "--force-all", Set force_all, "Force (re)installation of dependencies";
     "--debug", Set debug, "Debug package dependencies"; 
     "--repo", Set_string repository, "Set repository [stable, testing, unstable]";
-    "--auto-reinstall", Set auto_reinstall, "Auto-reinstall dependent packages on update"
+    "--auto-reinstall", Set auto_reinstall, "Auto-reinstall dependent packages on update";
 ]
     
 let () = parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
@@ -216,9 +218,9 @@ let install ?(force=false) p =
     let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
-    let config_opt = if as_root then "" else " --prefix " ^ odb_home in
+    let config_opt = if as_root || !have_perms then "" else " --prefix " ^ odb_home in
     let install_pre = 
-      if as_root then "sudo " else 
+      if as_root then "sudo " else if !have_perms then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     let config_fail = Failure ("Could not configure " ^ p.id)  in
