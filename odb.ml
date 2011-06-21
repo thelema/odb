@@ -24,8 +24,6 @@ let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
 (* micro-stdlib *)
 open Printf
-open Str
-open Arg
 let (|>) x f = f x
 let (|-) f g x = g (f x)
 let tap f x = f x; x
@@ -37,17 +35,17 @@ let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
 let cmd_line = 
-  [ "--clean", Set cleanup, "Cleanup downloaded tarballs and install folders";
-    "--sudo", Set sudo, "Switch to root for installs";
-    "--have-perms", Set have_perms, "Don't use --prefix even without sudo";
-    "--force", Set force, "Force (re)installation of packages named";
-    "--force-all", Set force_all, "Force (re)installation of dependencies";
-    "--debug", Set debug, "Debug package dependencies"; 
-    "--repo", Set_string repository, "Set repository [stable, testing, unstable]";
-    "--auto-reinstall", Set auto_reinstall, "Auto-reinstall dependent packages on update";
+  [ "--clean", Arg.Set cleanup, "Cleanup downloaded tarballs and install folders";
+    "--sudo", Arg.Set sudo, "Switch to root for installs";
+    "--have-perms", Arg.Set have_perms, "Don't use --prefix even without sudo";
+    "--force", Arg.Set force, "Force (re)installation of packages named";
+    "--force-all", Arg.Set force_all, "Force (re)installation of dependencies";
+    "--debug", Arg.Set debug, "Debug package dependencies"; 
+    "--repo", Arg.Set_string repository, "Set repository [stable, testing, unstable]";
+    "--auto-reinstall", Arg.Set auto_reinstall, "Auto-reinstall dependent packages on update";
 ]
     
-let () = parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
+let () = Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
 
 let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1)
 
@@ -112,31 +110,40 @@ let get_tarball p =
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id=id; props=get_info id} 
 
-(* Dependency comparison library *)  
-module Dep = struct
-  type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
+(* Version number handling *)
+module Ver = struct
+  (* A version number is a list of components, with each component
+     being a string or a number *)
   type ver_comp = Num of int | Str of string
   type ver = ver_comp list
-  type ver_req = cmp * ver
-  type dep = pkg * ver_req option
-  let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
 
-  let rec list_cmp : (ver * ver) -> int = function [],[] -> 0 
-    | Num 0::t, [] -> list_cmp (t,[]) | [], Num 0::t -> list_cmp ([],t) 
-    | _::_,[] -> 1 | [], _::_ -> -1 
-    | (x::xt), (y::yt) when x=y -> list_cmp (xt, yt) 
-    | (Num x::_), (Num y::_) -> compare (x:int) y
-    | (Str x::_), (Str y::_) -> compare (x:string) y
-    | (Num x::_), (Str y::_) -> -1
-    | (Str x::_), (Num y::_) -> 1
+  (* *)
+  let rec cmp : ver -> ver -> int = fun a b -> match a,b with 
+    | [],[] -> 0 (* each component was equal *)
+    | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t (* ignore trailing .0's *)
+    | _::_,[] -> 1 | [], _::_ -> -1 (* longer version numbers are before shorter ones *)
+    | (x::xt), (y::yt) when x=y -> cmp xt yt (* compare tails when heads are equal *)
+    | (Num x::_), (Num y::_) -> compare (x:int) y  (* just compare numbers *)
+    | (Str x::_), (Str y::_) -> compare (x:string) y (* extend with name ordering? *)
+    | (Num x::_), (Str y::_) -> -1 (* a number is always before a string *)
+    | (Str x::_), (Num y::_) -> 1  (* a string is always after a number *)
+
+  let to_ver = function Str.Delim s -> Str s | Str.Text s -> Num (int_of_string s)
+  let parse_ver v = 
+    try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
+    with Failure _ -> failwith ("Could not parse version: " ^ v)
+
+end
+
+(* Dependency comparison library *)  
+module Dep = struct
+  open Ver
+  type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
+  type dep = pkg * (cmp * ver) option
+  let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
   let ver_sat req v2 = v2 <> [] && match req with 
     | None -> true 
-    | Some (c, v1) -> comp (list_cmp (v1, v2)) 0 c
-  let to_ver_comp = function Delim s -> Str s | Text s -> Num (int_of_string s)
-  let parse_ver v = 
-    try 
-      full_split (regexp "[^0-9]+") v |> List.map to_ver_comp
-    with Failure _ -> failwith ("Could not parse version: " ^ v)
+    | Some (c, v1) -> comp (Ver.cmp v1 v2) 0 c
 
   let test_lib (p, v) = 
     Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
@@ -168,10 +175,10 @@ module Dep = struct
     else if vr.[0] = '>' then (GT, parse_ver (String.sub vr 1 (l-2)))
     else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
-  let whitespace_rx = regexp "[ \t]+"
+  let whitespace_rx = Str.regexp "[ \t]+"
   let make_dep str = 
-    let str = global_replace whitespace_rx "" str in
-    match bounded_split (regexp_string "(") str 2 with
+    let str = Str.global_replace whitespace_rx "" str in
+    match Str.bounded_split (Str.regexp_string "(") str 2 with
       | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
       | _ -> to_pkg str, None
   let get_deps p = 
