@@ -9,6 +9,7 @@ entry to your `/etc/ocamlfind.conf` path or set the environment
 variable `OCAMLPATH=~/.odb/lib`.
 
 The latest version can be downloaded directly from github with the following command: 
+    
     curl -O https://github.com/thelema/odb/raw/master/odb.ml
 
 
