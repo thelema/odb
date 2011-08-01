@@ -20,6 +20,8 @@ let debug = ref false
 let repository = ref "testing"
 let auto_reinstall = ref false
 let have_perms = ref false
+let configure_flags = ref ""
+let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
 (* micro-stdlib *)
@@ -38,6 +40,8 @@ let cmd_line =
   [ "--clean", Arg.Set cleanup, "Cleanup downloaded tarballs and install folders";
     "--sudo", Arg.Set sudo, "Switch to root for installs";
     "--have-perms", Arg.Set have_perms, "Don't use --prefix even without sudo";
+    "--configure-flags", Arg.Set_string configure_flags, "Flags to pass to explicitly installed packages' configure step";
+    "--configure-flags-global", Arg.Set_string configure_flags_global, "Flags to pass to all packages' configure step";
     "--force", Arg.Set force, "Force (re)installation of packages named";
     "--force-all", Arg.Set force_all, "Force (re)installation of dependencies";
     "--debug", Arg.Set debug, "Debug package dependencies"; 
@@ -226,6 +230,8 @@ let install ?(force=false) p =
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
     let config_opt = if as_root || !have_perms then "" else " --prefix " ^ odb_home in
+    let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
+    let config_opt = config_opt ^ " " ^ !configure_flags_global in
     let install_pre = 
       if as_root then "sudo " else if !have_perms then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
