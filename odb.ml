@@ -20,6 +20,7 @@ let debug = ref false
 let repository = ref "testing"
 let auto_reinstall = ref false
 let have_perms = ref false
+let godi = ref false
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
@@ -40,6 +41,7 @@ let cmd_line =
   [ "--clean", Arg.Set cleanup, "Cleanup downloaded tarballs and install folders";
     "--sudo", Arg.Set sudo, "Switch to root for installs";
     "--have-perms", Arg.Set have_perms, "Don't use --prefix even without sudo";
+    "--godi", Arg.Set godi, "Assume --prefix should match GODI's install location ($GODI_LOCALBASE)";
     "--configure-flags", Arg.Set_string configure_flags, "Flags to pass to explicitly installed packages' configure step";
     "--configure-flags-global", Arg.Set_string configure_flags_global, "Flags to pass to all packages' configure step";
     "--force", Arg.Set force, "Force (re)installation of packages named";
@@ -229,7 +231,8 @@ let install ?(force=false) p =
     let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
-    let config_opt = if as_root || !have_perms then "" else " --prefix " ^ odb_home in
+    let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
+    let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
     let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
     let config_opt = config_opt ^ " " ^ !configure_flags_global in
     let install_pre = 
