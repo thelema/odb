@@ -37,18 +37,18 @@ let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
-let cmd_line = 
-  [ "--clean", Arg.Set cleanup, "Cleanup downloaded tarballs and install folders";
-    "--sudo", Arg.Set sudo, "Switch to root for installs";
-    "--have-perms", Arg.Set have_perms, "Don't use --prefix even without sudo";
-    "--godi", Arg.Set godi, "Assume --prefix should match GODI's install location ($GODI_LOCALBASE)";
-    "--configure-flags", Arg.Set_string configure_flags, "Flags to pass to explicitly installed packages' configure step";
-    "--configure-flags-global", Arg.Set_string configure_flags_global, "Flags to pass to all packages' configure step";
-    "--force", Arg.Set force, "Force (re)installation of packages named";
-    "--force-all", Arg.Set force_all, "Force (re)installation of dependencies";
-    "--debug", Arg.Set debug, "Debug package dependencies"; 
-    "--repo", Arg.Set_string repository, "Set repository [stable, testing, unstable]";
-    "--auto-reinstall", Arg.Set auto_reinstall, "Auto-reinstall dependent packages on update";
+let cmd_line = Arg.align [
+  "--clean", Arg.Set cleanup, " Cleanup downloaded tarballs and install folders";
+  "--sudo", Arg.Set sudo, " Switch to root for installs";
+  "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
+  "--godi", Arg.Set godi, " Assume --prefix should match GODI's install location ($GODI_LOCALBASE)";
+  "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
+  "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
+  "--force", Arg.Set force, " Force (re)installation of packages named";
+  "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
+  "--debug", Arg.Set debug, " Debug package dependencies"; 
+  "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
+  "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
     
 let () = Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
