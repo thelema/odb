@@ -20,6 +20,9 @@ let debug = ref false
 let repository = ref "testing"
 let auto_reinstall = ref false
 let have_perms = ref false
+let godi = ref false
+let configure_flags = ref ""
+let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
 (* micro-stdlib *)
@@ -34,15 +37,18 @@ let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
-let cmd_line = 
-  [ "--clean", Arg.Set cleanup, "Cleanup downloaded tarballs and install folders";
-    "--sudo", Arg.Set sudo, "Switch to root for installs";
-    "--have-perms", Arg.Set have_perms, "Don't use --prefix even without sudo";
-    "--force", Arg.Set force, "Force (re)installation of packages named";
-    "--force-all", Arg.Set force_all, "Force (re)installation of dependencies";
-    "--debug", Arg.Set debug, "Debug package dependencies"; 
-    "--repo", Arg.Set_string repository, "Set repository [stable, testing, unstable]";
-    "--auto-reinstall", Arg.Set auto_reinstall, "Auto-reinstall dependent packages on update";
+let cmd_line = Arg.align [
+  "--clean", Arg.Set cleanup, " Cleanup downloaded tarballs and install folders";
+  "--sudo", Arg.Set sudo, " Switch to root for installs";
+  "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
+  "--godi", Arg.Set godi, " Assume --prefix should match GODI's install location ($GODI_LOCALBASE)";
+  "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
+  "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
+  "--force", Arg.Set force, " Force (re)installation of packages named";
+  "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
+  "--debug", Arg.Set debug, " Debug package dependencies"; 
+  "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
+  "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
     
 let () = Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
@@ -225,7 +231,10 @@ let install ?(force=false) p =
     let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
-    let config_opt = if as_root || !have_perms then "" else " --prefix " ^ odb_home in
+    let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
+    let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
+    let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
+    let config_opt = config_opt ^ " " ^ !configure_flags_global in
     let install_pre = 
       if as_root then "sudo " else if !have_perms then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
