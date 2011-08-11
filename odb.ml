@@ -3,13 +3,15 @@
 #require "str";;
 #require "unix";;
 
+module Fn = Filename
+
 (* Configurable parameters, some by command line *)
-let webroot = "http://oasis.ocamlcore.org/dev/odb/" 
+let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 (*let webroot = "http://mutt.cse.msu.edu:8081/" *)
-let odb_home = (Sys.getenv "HOME") ^ "/.odb"
-let odb_lib = odb_home ^ "/lib"
-let odb_stubs = odb_home ^ "/lib/stublibs"
-let odb_bin = odb_home ^ "/bin"
+let odb_home = Fn.concat (Sys.getenv "HOME") ".odb"
+let odb_lib = Fn.concat odb_home "lib"
+let odb_stubs = Fn.concat odb_home "/lib/stublibs"
+let odb_bin = Fn.concat odb_home "bin"
 let build_dir = ref odb_home
 let cleanup = ref false
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
@@ -50,21 +52,21 @@ let cmd_line = Arg.align [
   "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
-    
+
 let () = Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
 
 let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1)
 
 (* micro-http library *)
-module Http = struct 
+module Http = struct
   let get_fn ?(silent=true) uri ~fn =
     let s = if silent then " -s" else "" in
-    if Sys.command ("curl -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then 
+    if Sys.command ("curl -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
       failwith ("Curl failed to get " ^ uri)
-	
+
   let get uri =
     if !debug then printf "Getting URI: %s\n%!" uri;
-    let fn = Filename.temp_file "odb" ".info" in
+    let fn = Fn.temp_file "odb" ".info" in
     get_fn uri ~fn;
     let ic = open_in fn in
     let len = in_channel_length ic in
@@ -82,24 +84,24 @@ type dep_tree = N of pkg * dep_tree list
 (* micro property-list library *)
 module PL = struct
   let get ~p ~n = try List.assoc n p.props with Not_found -> ""
-  let get_b ~p ~n = 
+  let get_b ~p ~n =
     try List.assoc n p.props |> bool_of_string with Not_found -> false
-  let get_i ~p ~n = 
+  let get_i ~p ~n =
     try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
-  let of_string = 
-    Str.split (Str.regexp "\n") 
-    |- List.filter (fun s -> String.contains s '=') 
-    |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with 
-	| [k;v] -> (k,v) | [k] -> (k,"") 
+  let of_string =
+    Str.split (Str.regexp "\n")
+    |- List.filter (fun s -> String.contains s '=')
+    |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with
+	| [k;v] -> (k,v) | [k] -> (k,"")
 	| _ -> failwith ("Bad line in alist: " ^ s))
 end
 
 (* locations of files in website *)
-let tarball_uri ?(backup=false) p = 
+let tarball_uri ?(backup=false) p =
   if backup then
     webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
-  else 
+  else
     webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
@@ -107,14 +109,14 @@ let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 let get_info id = deps_uri id |> Http.get |> PL.of_string
 let get_tarball p =
   let fn = PL.get ~p ~n:"tarball" in
-  ( try 
+  ( try
       tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
-    with Failure _ -> 
+    with Failure _ ->
       tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn; );
   fn
 
 (* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = {id=id; props=get_info id} 
+let to_pkg id = {id=id; props=get_info id}
 
 (* Version number handling *)
 module Ver = struct
@@ -124,7 +126,7 @@ module Ver = struct
   type ver = ver_comp list
 
   (* *)
-  let rec cmp : ver -> ver -> int = fun a b -> match a,b with 
+  let rec cmp : ver -> ver -> int = fun a b -> match a,b with
     | [],[] -> 0 (* each component was equal *)
     | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t (* ignore trailing .0's *)
     | _::_,[] -> 1 | [], _::_ -> -1 (* longer version numbers are before shorter ones *)
@@ -135,27 +137,27 @@ module Ver = struct
     | (Str x::_), (Num y::_) -> 1  (* a string is always after a number *)
 
   let to_ver = function Str.Delim s -> Str s | Str.Text s -> Num (int_of_string s)
-  let parse_ver v = 
+  let parse_ver v =
     try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
     with Failure _ -> failwith ("Could not parse version: " ^ v)
 
 end
 
-(* Dependency comparison library *)  
+(* Dependency comparison library *)
 module Dep = struct
   open Ver
   type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
   type dep = pkg * (cmp * ver) option
   let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
-  let ver_sat req v2 = v2 <> [] && match req with 
-    | None -> true 
+  let ver_sat req v2 = v2 <> [] && match req with
+    | None -> true
     | Some (c, v1) -> comp (Ver.cmp v1 v2) 0 c
 
-  let test_lib (p, v) = 
-    Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 && 
+  let test_lib (p, v) =
+    Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 &&
     open_in "ocaml-ver" |> input_line |> parse_ver |> ver_sat v
 
-  let rec input_all_lines acc ic = 
+  let rec input_all_lines acc ic =
     let a = try Some (input_line ic) with End_of_file -> None in
     match a with Some w -> input_all_lines (w::acc) ic | None -> List.rev acc
 
@@ -167,35 +169,35 @@ module Dep = struct
     else []
 
   let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
-	
-  let has_dep (p,_ as d) = 
+
+  let has_dep (p,_ as d) =
     let is_library = PL.get_b p "is_library" in
     let is_program = PL.get_b p "is_program" in
-    if is_library || is_program then 
+    if is_library || is_program then
       (is_library && test_lib d) || (is_program && test_prog d)
     else test_lib d || test_prog d;;
   let has_dep (p,v) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
-  let parse_vreq vr = 
+  let parse_vreq vr =
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
     else if vr.[0] = '>' then (GT, parse_ver (String.sub vr 1 (l-2)))
     else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
   let whitespace_rx = Str.regexp "[ \t]+"
-  let make_dep str = 
+  let make_dep str =
     let str = Str.global_replace whitespace_rx "" str in
     match Str.bounded_split (Str.regexp_string "(") str 2 with
       | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
       | _ -> to_pkg str, None
-  let get_deps p = 
+  let get_deps p =
     PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
-  let rec all_deps p = 
+  let rec all_deps p =
     let ds = get_deps p |> List.filter (has_dep |- not) in
     N (p, List.map (fst |- all_deps) ds)
 end
 
-let extract_cmd fn = 
-  let suff = Filename.check_suffix fn in
+let extract_cmd fn =
+  let suff = Fn.check_suffix fn in
   if suff ".tar.gz" || suff ".tgz" then
     "tar -zxvf " ^ fn
   else if suff ".tar.bz2" || suff ".tbz" then
@@ -211,12 +213,12 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
-let install ?(force=false) p = 
+let install ?(force=false) p =
   if not force && Dep.has_dep (p,None) then (
     print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall"); []
   ) else begin
     let install_dir = "install-" ^ p.id in
-    if Sys.file_exists install_dir then 
+    if Sys.file_exists install_dir then
       Sys.command ("rm -rf " ^ install_dir) |> ignore;
     Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
@@ -270,16 +272,16 @@ let install ?(force=false) p =
   end
 
 let install_dep p =
-  let rec loop ~force (N (p,deps)) = 
-    List.iter (loop ~force:!(force_all)) deps; 
-    let rec inner_loop p = 
+  let rec loop ~force (N (p,deps)) =
+    List.iter (loop ~force:!(force_all)) deps;
+    let rec inner_loop p =
       let reqs_imm = install ~force p in
-      if !auto_reinstall then 
-	List.iter 
-	  (fun p -> try to_pkg p |> inner_loop with _ -> 
-	    reqs := p :: !reqs) 
+      if !auto_reinstall then
+	List.iter
+	  (fun p -> try to_pkg p |> inner_loop with _ ->
+	    reqs := p :: !reqs)
 	  reqs_imm
-      else 
+      else
 	reqs := reqs_imm @ !reqs;
     in
     inner_loop p
@@ -287,16 +289,16 @@ let install_dep p =
   Dep.all_deps p |> loop ~force:(!force || !force_all)
 
 (** MAIN **)
-let () = 
+let () =
   if !sudo then (
-    build_dir := getenv "TEMP" // getenv "TMP" // "/tmp"
+    build_dir := Fn.temp_dir_name
   ) else (
     mkdir odb_home;
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
   Sys.chdir !build_dir;
   if !cleanup then
-    Sys.command ("rm -rf install-*") |> ignore;  
+    Sys.command ("rm -rf install-*") |> ignore;
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
     let pkgs = deps_uri "00list" |> Http.get in
     printf "Available packages: %s\n" pkgs
