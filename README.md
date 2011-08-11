@@ -10,7 +10,7 @@ variable `OCAMLPATH=~/.odb/lib`.
 
 The latest version can be downloaded directly from github with the following command: 
     
-    curl -O https://github.com/thelema/odb/raw/master/odb.ml
+    curl -O https://raw.github.com/thelema/odb/master/odb.ml
 
 
 ### Usage
