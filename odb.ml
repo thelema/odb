@@ -236,7 +236,7 @@ let install ?(force=false) p =
     let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
     let config_opt = config_opt ^ " " ^ !configure_flags_global in
     let install_pre = 
-      if as_root then "sudo " else if !have_perms then "" else 
+      if as_root then "sudo " else if !have_perms || !godi then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     let config_fail = Failure ("Could not configure " ^ p.id)  in
