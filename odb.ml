@@ -163,7 +163,7 @@ module Dep = struct
     let p_id_len = String.length p.id in
     if Sys.command ("ocamlfind query -format %p -d " ^ p.id ^ " > odb-req") = 0 then
       open_in "odb-req" |> input_all_lines [] 
-      |> List.filter (fun r -> String.sub r 0 p_id_len <> p.id)
+      |> List.filter (fun r -> String.length r < p_id_len || String.sub r 0 p_id_len <> p.id)
     else []
 
   let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
