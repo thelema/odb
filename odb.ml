@@ -2,6 +2,7 @@
 #use "topfind";;
 #require "str";;
 #require "unix";;
+#require "findlib";;
 
 module Fn = Filename
 
@@ -43,7 +44,7 @@ let cmd_line = Arg.align [
   "--clean", Arg.Set cleanup, " Cleanup downloaded tarballs and install folders";
   "--sudo", Arg.Set sudo, " Switch to root for installs";
   "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
-  "--godi", Arg.Set godi, " Assume --prefix should match GODI's install location ($GODI_LOCALBASE)";
+  "--no-godi", Arg.Clear godi, " Disable use of auto-detected GODI paths";
   "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
@@ -53,9 +54,11 @@ let cmd_line = Arg.align [
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
 
-let () = Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";;
-
-let () = if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1)
+let () = 
+  Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
+  if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1);
+  if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
+  ()
 
 (* micro-http library *)
 module Http = struct
@@ -154,19 +157,18 @@ module Dep = struct
     | Some (c, v1) -> comp (Ver.cmp v1 v2) 0 c
 
   let test_lib (p, v) =
-    Sys.command ("ocamlfind query -format %v " ^ p.id ^ " > ocaml-ver") = 0 &&
-    open_in "ocaml-ver" |> input_line |> parse_ver |> ver_sat v
-
-  let rec input_all_lines acc ic =
-    let a = try Some (input_line ic) with End_of_file -> None in
-    match a with Some w -> input_all_lines (w::acc) ic | None -> List.rev acc
+    try
+      Findlib.package_property [] p.id "version" |> parse_ver |> ver_sat v
+    with Findlib.No_such_package _ ->
+      false
 
   let get_reqs p =
     let p_id_len = String.length p.id in
-    if Sys.command ("ocamlfind query -format %p -d " ^ p.id ^ " > odb-req") = 0 then
-      open_in "odb-req" |> input_all_lines [] 
+    try
+      Fl_package_base.package_users [] [p.id]
       |> List.filter (fun r -> String.length r < p_id_len || String.sub r 0 p_id_len <> p.id)
-    else []
+    with Findlib.No_such_package _ ->
+      []
 
   let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
 
