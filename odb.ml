@@ -170,7 +170,7 @@ module Dep = struct
     with Findlib.No_such_package _ ->
       []
 
-  let test_prog (p, _v) = Sys.command ("which " ^ p.id) = 0
+  let test_prog (p, _v) = Sys.command ("which " ^ p.id ^ "> /dev/null") = 0
 
   let has_dep (p,_ as d) =
     let is_library = PL.get_b p "is_library" in
