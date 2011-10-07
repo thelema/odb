@@ -63,12 +63,12 @@ let () =
 (* micro-http library *)
 module Http = struct
   let get_fn ?(silent=true) uri ~fn =
+    if !debug then printf "Getting URI: %s\n%!" uri;
     let s = if silent then " -s" else "" in
-    if Sys.command ("curl -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
+    if Sys.command ("curl -k -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
       failwith ("Curl failed to get " ^ uri)
 
   let get uri =
-    if !debug then printf "Getting URI: %s\n%!" uri;
     let fn = Fn.temp_file "odb" ".info" in
     get_fn uri ~fn;
     let ic = open_in fn in
@@ -278,6 +278,7 @@ let install ~force:force_local p =
   end
 
 let install_dep p =
+  if !debug then printf "Installing %s\n" p.id;
   let rec loop ~force (N (p,deps)) =
     List.iter (loop ~force:!(force_all)) deps;
     let rec inner_loop p =
