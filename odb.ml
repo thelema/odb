@@ -265,7 +265,7 @@ let install ~force:force_local p =
 	run_or ~cmd:"make" ~err:build_fail;
 	run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     );
-    Sys.chdir odb_home;
+    Sys.chdir !build_dir;
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
       print_endline ("Installed package is not available to the system");
