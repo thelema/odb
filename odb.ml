@@ -215,9 +215,13 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
-let install ?(force=false) p =
-  if not force && Dep.has_dep (p,None) then (
-    print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall"); []
+let install ~force:force_local p =
+  if not force_local && Dep.has_dep (p,None) then (
+    if !force then
+      print_endline ("Dependency " ^ p.id ^ " already installed, use --force-all to reinstall")
+    else
+      print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
+    []
   ) else begin
     let install_dir = "install-" ^ p.id in
     if Sys.file_exists install_dir then
