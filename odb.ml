@@ -109,7 +109,12 @@ let tarball_uri ?(backup=false) p =
 let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
-let get_info id = deps_uri id |> Http.get |> PL.of_string
+let get_info =
+  let ht = Hashtbl.create 10 in
+  fun id -> try Hashtbl.find ht id
+    with Not_found ->
+      deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+
 let get_tarball p =
   let fn = PL.get ~p ~n:"tarball" in
   ( try
