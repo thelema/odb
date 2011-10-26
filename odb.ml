@@ -109,10 +109,10 @@ let tarball_uri ?(backup=false) p =
 let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
-let get_info =
+let get_info = 
   let ht = Hashtbl.create 10 in
-  fun id -> try Hashtbl.find ht id
-    with Not_found ->
+  fun id -> try Hashtbl.find ht id 
+    with Not_found -> 
       deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
 
 let get_tarball p =
@@ -221,28 +221,38 @@ type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
 let install ~force:force_local p =
-  if not force_local && Dep.has_dep (p,None) then (
+  let already_installed = Dep.has_dep (p,None) in
+  if not force_local && already_installed then (
     if !force then
       print_endline ("Dependency " ^ p.id ^ " already installed, use --force-all to reinstall")
     else
       print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
     []
   ) else begin
+    (* Set up the directory to install into *)
     let install_dir = "install-" ^ p.id in
     if Sys.file_exists install_dir then
       Sys.command ("rm -rf " ^ install_dir) |> ignore;
     Unix.mkdir install_dir 0o700;
+
+    (* Extract our tarball in that directory *)
     Sys.chdir install_dir;
     let tb = get_tarball p in
     let extract_cmd = extract_cmd tb in
     run_or ~cmd:extract_cmd
       ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
 
+    (* detect and enter directory created by tarball *)
     let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
     (match dirs with [] -> () | h::_ -> Sys.chdir h);
 
-    let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
+    (* detect build type based on files in directory *)
+    let buildtype = 
+           if Sys.file_exists "setup.ml" then Oasis 
+      else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake 
+      else Make in
 
+    (* configure installation parameters based on command-line flags *)
     let as_root = PL.get_b p "install_as_root" || !sudo in
     let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
     let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
@@ -252,10 +262,16 @@ let install ~force:force_local p =
       if as_root then "sudo " else if !have_perms || !godi then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
+    if force_local && already_installed && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+      print_endline ("Uninstalling forced library " ^ p.id);
+      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
+    );
+    (* define exceptions to raise for errors in various steps *)
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
+    (* Do the install *)
     ( match buildtype with
       | Oasis ->
 	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
@@ -270,7 +286,9 @@ let install ~force:force_local p =
 	run_or ~cmd:"make" ~err:build_fail;
 	run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     );
+    (* leave the install dir *)
     Sys.chdir !build_dir;
+    (* test whether installation was successful *)
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
       print_endline ("Installed package is not available to the system");
@@ -282,6 +300,7 @@ let install ~force:force_local p =
     Dep.get_reqs p (* return the reqs *)
   end
 
+(* install a package and all its deps *)
 let install_dep p =
   if !debug then printf "Installing %s\n" p.id;
   let rec loop ~force (N (p,deps)) =
@@ -302,6 +321,8 @@ let install_dep p =
 
 (** MAIN **)
 let () =
+
+  (* initialize build directory if needed *)
   if !sudo then (
     build_dir := Fn.temp_dir_name
   ) else (
