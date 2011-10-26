@@ -3,6 +3,7 @@
 #require "str";;
 #require "unix";;
 #require "findlib";;
+#require "oasis.base";;
 
 module Fn = Filename
 
@@ -49,16 +50,16 @@ let cmd_line = Arg.align [
   "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
-  "--debug", Arg.Set debug, " Debug package dependencies"; 
+  "--debug", Arg.Set debug, " Debug package dependencies";
   "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
 
-let () = 
+let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
-  if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1);
-  if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
-  ()
+  if !godi then
+    print_endline "GODI_LOCALBASE detected, using it for installs";
+
 
 (* micro-http library *)
 module Http = struct
@@ -86,6 +87,8 @@ type dep_tree = N of pkg * dep_tree list
 
 (* micro property-list library *)
 module PL = struct
+  type t = (string * string) list
+
   let get ~p ~n = try List.assoc n p.props with Not_found -> ""
   let get_b ~p ~n =
     try List.assoc n p.props |> bool_of_string with Not_found -> false
@@ -100,26 +103,156 @@ module PL = struct
 	| _ -> failwith ("Bad line in alist: " ^ s))
 end
 
-(* locations of files in website *)
-let tarball_uri ?(backup=false) p =
-  if backup then
-    webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
-  else
-    webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
-let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
-(* wrapper functions to get data from server *)
-let get_info id = deps_uri id |> Http.get |> PL.of_string
-let get_tarball p =
-  let fn = PL.get ~p ~n:"tarball" in
-  ( try
-      tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
-    with Failure _ ->
-      tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn; );
-  fn
+let extract_cmd fn =
+  let suff = Fn.check_suffix fn in
+  if suff ".tar.gz" || suff ".tgz" then
+    "tar -zxvf " ^ fn
+  else if suff ".tar.bz2" || suff ".tbz" then
+    "tar -jxvf " ^ fn
+  else if suff ".tar.xz" || suff ".txz" then
+    "tar -Jxvf " ^ fn
+  else if suff ".zip" then
+    "unzip " ^ fn
+  else failwith "Don't know how to extract " ^ fn
 
-(* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = {id=id; props=get_info id}
+let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
+
+
+(* +--------------+
+   | Repositories |
+   +--------------+ *)
+
+class type repository_type = object
+  (** Returns a list of packages available for installation. *)
+  method list : unit   -> string list
+
+  (** Looks up a package matching a given id string and returns
+      a new [pkg] instance.
+
+      TODO: verify no bad chars to make command construction safer
+  *)
+  method lookup : string -> pkg
+
+  (** Returns a property list of package metadata. *)
+  method info : string -> PL.t
+
+  (** Fetches package from repository and changes current working
+      directory to the directory with package sources. *)
+  method get  : pkg    -> unit
+end
+
+
+let remote : repository_type =
+  let tarball_uri ?(backup=false) p =
+    if backup then
+      webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
+    else
+      webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
+
+  and deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id in
+
+object (self)
+  method list () = deps_uri "00list"
+    |> Http.get
+    |> Str.split (Str.regexp " +")
+
+  method lookup id = { id = id; props = self#info id }
+
+  method info id = deps_uri id |> Http.get |> PL.of_string
+
+  method get p =
+    let fn = PL.get ~p ~n:"tarball" in
+    let extract_cmd = extract_cmd fn in
+    ( try
+        tarball_uri p |> Http.get_fn ~silent:false ~fn:fn
+      with Failure _ ->
+        tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn );
+
+    run_or ~cmd:extract_cmd
+      ~err:(Failure (sprintf "Could not extract tarball for %s (%s)" p.id fn));
+
+    match Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory with
+      | [] -> ()
+      | target :: _ -> Sys.chdir target
+end
+
+
+let local : repository_type =
+  let open OASISTypes in
+  let open OASISVersion in
+
+  let ctxt = { !BaseContext.default with OASISContext.ignore_plugins = true }
+
+  and oasis_fn dir = Fn.concat (Fn.concat !repository dir) "_oasis"
+
+  and find_all_depends =
+    let rec inner acc = function
+      | [] -> String.concat " " []
+      | Library    (_, { bs_build_depends; _ }, _) :: sections
+      | Executable (_, { bs_build_depends; _ }, _) :: sections ->
+        let findlib_depends = List.fold_left
+          (fun acc -> function
+            | FindlibPackage (name, Some v) ->
+              Printf.sprintf "%s(%s)" name (string_of_comparator v) :: acc
+            | FindlibPackage (name, None) ->
+              name :: acc
+            | _ -> acc
+          ) [] bs_build_depends
+        in inner (acc @ findlib_depends) sections
+      | _ :: sections -> inner acc sections
+    in inner []
+
+  and is_library =
+    List.exists (function Library _ -> true | _ -> false)
+
+  and is_program =
+    List.exists (function Executable _ -> true | _ -> false)
+  in
+
+object (self)
+  method list () =
+    let has_oasis dir = Sys.file_exists (oasis_fn dir)
+    in Sys.readdir !repository
+      |> Array.to_list
+      |> List.filter has_oasis  (* Note(superbobry): OASIS only! *)
+      |> List.sort (compare)
+
+  method lookup dir =
+    (* Note(superbobry): we need to resolve a given directory name to
+       an actual OASIS package name. *)
+    let { name; _ } = OASISParse.from_file ~ctxt (oasis_fn dir) in
+    { id = name; props = self#info dir }
+
+  method info dir =
+    let { sections; _ } = OASISParse.from_file ~ctxt (oasis_fn dir) in
+    [ ("deps", find_all_depends sections)
+    ; ("is_library", is_library sections |> string_of_bool)
+    ; ("is_program", is_program sections |> string_of_bool)
+    ; ("source", Fn.concat !repository dir)
+    ]
+
+  method get p =
+    let source = PL.get p "source" in
+    let target = p.id ^ "-local" in
+    let err = Failure (sprintf "Could not copy source directory for %s %s" p.id source)
+    in begin
+      run_or ~cmd:(sprintf "cp -r %s %s" source target) ~err;
+      Unix.chmod target 0o700;
+      Sys.chdir target;
+    end
+end
+
+
+(** Global reference to the current repository type.
+
+    Note(superbobry): this sucks obviously, but it seems like the easiest
+    way to get over [to_pkg], which depends on one of the methods. *)
+let r = ref remote
+
+(** Compatibility function -- REMOVE! *)
+let to_pkg id = !r#lookup id
+
 
 (* Version number handling *)
 module Ver = struct
@@ -198,19 +331,6 @@ module Dep = struct
     N (p, List.map (fst |- all_deps) ds)
 end
 
-let extract_cmd fn =
-  let suff = Fn.check_suffix fn in
-  if suff ".tar.gz" || suff ".tgz" then
-    "tar -zxvf " ^ fn
-  else if suff ".tar.bz2" || suff ".tbz" then
-    "tar -jxvf " ^ fn
-  else if suff ".tar.xz" || suff ".txz" then
-    "tar -Jxvf " ^ fn
-  else if suff ".zip" then
-    "unzip " ^ fn
-  else failwith "Don't know how to extract " ^ fn
-
-let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
 type build_type = Oasis | Omake | Make
 
@@ -224,23 +344,23 @@ let install ?(force=false) p =
       Sys.command ("rm -rf " ^ install_dir) |> ignore;
     Unix.mkdir install_dir 0o700;
     Sys.chdir install_dir;
-    let tb = get_tarball p in
-    let extract_cmd = extract_cmd tb in
-    run_or ~cmd:extract_cmd
-      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+    !r#get p;
 
-    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-    (match dirs with [] -> () | h::_ -> Sys.chdir h);
-
-    let buildtype = if Sys.file_exists "setup.ml" then Oasis else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake else Make in
+    let buildtype =
+      if Sys.file_exists "setup.ml" then
+        Oasis
+      else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then
+        Omake
+      else Make
+    in
 
     let as_root = PL.get_b p "install_as_root" || !sudo in
     let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
     let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
     let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
     let config_opt = config_opt ^ " " ^ !configure_flags_global in
-    let install_pre = 
-      if as_root then "sudo " else if !have_perms || !godi then "" else 
+    let install_pre =
+      if as_root then "sudo " else if !have_perms || !godi then "" else
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     let config_fail = Failure ("Could not configure " ^ p.id)  in
@@ -292,6 +412,21 @@ let install_dep p =
 
 (** MAIN **)
 let () =
+  (* Note(superbobry): if a given repository path is not a valid OASIS-DB
+     path and it *does* exist in the file system -- treat it as local. *)
+  r := if (!repository = "stable"  ||
+           !repository = "testing" ||
+           !repository = "unstable") then
+    remote
+  else if Sys.file_exists !repository then
+    local
+  else (
+    printf "Not a valid repository path: '%s'; for remote " !repository;
+    printf "repositories use stable, testing or unstable; for local ";
+    printf "-- any local directory with OASIS projects.\n";
+    exit 1;
+  );
+
   if !sudo then (
     build_dir := Fn.temp_dir_name
   ) else (
@@ -302,10 +437,10 @@ let () =
   if !cleanup then
     Sys.command ("rm -rf install-*") |> ignore;
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
-    let pkgs = deps_uri "00list" |> Http.get in
-    printf "Available packages: %s\n" pkgs
+    print_endline "Available packages:";
+    List.iter (printf "%s ") (!r#list ())
   ) else ( (* install listed packages *)
-    List.iter (to_pkg |- install_dep) !to_install;
+    List.iter (!r#lookup |- install_dep) !to_install;
     if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
