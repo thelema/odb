@@ -178,10 +178,8 @@ module Dep = struct
   let test_prog (p, _v) = Sys.command ("which " ^ p.id ^ "> /dev/null") = 0
 
   let has_dep (p,_ as d) =
-    let is_library = PL.get_b p "is_library" in
-    let is_program = PL.get_b p "is_program" in
-    if is_library || is_program then
-      (is_library && test_lib d) || (is_program && test_prog d)
+    if       PL.get_b p "is_library"  then  test_lib  d
+    else if  PL.get_b p "is_program"  then  test_prog d
     else test_lib d || test_prog d;;
   let has_dep (p,v) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
   let parse_vreq vr =
