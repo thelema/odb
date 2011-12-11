@@ -223,32 +223,8 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
-let install ~force:force_local p =
-  let already_installed = Dep.has_dep (p,None) in
-  if not force_local && already_installed then (
-    if !force then
-      print_endline ("Dependency " ^ p.id ^ " already installed, use --force-all to reinstall")
-    else
-      print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
-    []
-  ) else begin
-    (* Set up the directory to install into *)
-    let install_dir = "install-" ^ p.id in
-    if Sys.file_exists install_dir then
-      Sys.command ("rm -rf " ^ install_dir) |> ignore;
-    Unix.mkdir install_dir 0o700;
-
-    (* Extract our tarball in that directory *)
-    Sys.chdir install_dir;
-    let tb = get_tarball p in
-    let extract_cmd = extract_cmd tb in
-    run_or ~cmd:extract_cmd
-      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
-
-    (* detect and enter directory created by tarball *)
-    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-    (match dirs with [] -> () | h::_ -> Sys.chdir h);
-
+let install_from_dir ~dir ~force_me p =
+  Sys.chdir dir;
     (* detect build type based on files in directory *)
     let buildtype = 
            if Sys.file_exists "setup.ml" then Oasis 
@@ -265,10 +241,6 @@ let install ~force:force_local p =
       if as_root then "sudo " else if !have_perms || !godi then "" else 
 	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
-    if force_local && already_installed && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
-      print_endline ("Uninstalling forced library " ^ p.id);
-      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
-    );
     (* define exceptions to raise for errors in various steps *)
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
@@ -295,13 +267,49 @@ let install ~force:force_local p =
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
       print_endline ("Installed package is not available to the system");
-      print_endline ("Make sure "^odb_bin^" is in your PATH");
-      print_endline ("and "^odb_lib^" is in your OCAMLPATH");
+      print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
+      print_endline ("and "^odb_bin^" is in your PATH");
       exit 1;
     );
     print_endline ("Successfully installed " ^ p.id);
     Dep.get_reqs p (* return the reqs *)
-  end
+
+let download_and_install ~force_me p =
+  let already_installed = Dep.has_dep (p,None) in
+  if not force_me && already_installed then (
+    if !force then
+      print_endline ("Dependency " ^ p.id ^ " already installed, use --force-all to reinstall")
+    else
+      print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
+    []
+  ) else (
+    if force_me && already_installed && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+      let as_root = PL.get_b p "install_as_root" || !sudo in
+      let install_pre =
+	if as_root then "sudo " else if !have_perms || !godi then "" else
+	    "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+      print_endline ("Uninstalling forced library " ^ p.id);
+      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
+    );
+
+    (* Set up the directory to install into *)
+    let install_dir = "install-" ^ p.id in
+    if Sys.file_exists install_dir then
+      Sys.command ("rm -rf " ^ install_dir) |> ignore;
+    Unix.mkdir install_dir 0o700;
+
+    (* Extract our tarball in that directory *)
+    Sys.chdir install_dir;
+    let tb = get_tarball p in
+    let extract_cmd = extract_cmd tb in
+    run_or ~cmd:extract_cmd
+      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+
+    (* detect and enter directory created by tarball *)
+    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
+    let dir = match dirs with | [] -> "." | h::_ -> h in
+    install_from_dir ~dir ~force_me p
+  )
 
 (* install a package and all its deps *)
 let install_dep p =
@@ -309,7 +317,7 @@ let install_dep p =
   let rec loop ~force (N (p,deps)) =
     List.iter (loop ~force:!(force_all)) deps;
     let rec inner_loop p =
-      let reqs_imm = install ~force p in
+      let reqs_imm = download_and_install ~force_me:force p in
       if !auto_reinstall then
 	List.iter
 	  (fun p -> try to_pkg p |> inner_loop with _ ->
