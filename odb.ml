@@ -50,6 +50,9 @@ let cmd_line = Arg.align [
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
   "--debug", Arg.Set debug, " Debug package dependencies"; 
+  "--unstable", Arg.Unit (fun () -> repository := "unstable"), " Use unstable repo";
+  "--stable", Arg.Unit (fun () -> repository := "stable"), " Use stable repo";
+  "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
   "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
