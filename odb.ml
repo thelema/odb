@@ -68,7 +68,7 @@ module Http = struct
   let get_fn ?(silent=true) uri ~fn =
     if !debug then printf "Getting URI: %s\n%!" uri;
     let s = if silent then " -s" else "" in
-    if Sys.command ("curl -k -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
+    if Sys.command ("curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
       failwith ("Curl failed to get " ^ uri)
 
   let get uri =
@@ -116,7 +116,10 @@ let get_info =
   let ht = Hashtbl.create 10 in
   fun id -> try Hashtbl.find ht id 
     with Not_found -> 
-      deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+      try 
+	deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+      with Failure _ -> failwith ("Package not in "^ !repository ^" repo: " ^ id)
+
 
 let get_tarball p =
   let fn = PL.get ~p ~n:"tarball" in
@@ -251,14 +254,17 @@ let install_from_dir ~dir ~force_me p =
       | Oasis ->
 	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
 	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+        (* TODO: MAKE TEST *)
 	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
       | Omake ->
 	run_or ~cmd:"omake" ~err:build_fail;
+        (* TODO: MAKE TEST *)
 	run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
       | Make ->
 	if Sys.file_exists "configure" then
 	  run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
 	run_or ~cmd:"make" ~err:build_fail;
+        (* TODO: MAKE TEST *)
 	run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     );
     (* leave the install dir *)
@@ -313,9 +319,10 @@ let download_and_install ~force_me p =
 
 (* install a package and all its deps *)
 let install_dep p =
-  if !debug then printf "Installing %s\n" p.id;
-  let rec loop ~force (N (p,deps)) =
-    List.iter (loop ~force:!(force_all)) deps;
+  printf "Installing %s\n" p.id;
+  let rec install_tree ~force (N (p,deps)) = 
+    (* take care of child deps first *)
+    List.iter (install_tree ~force:!(force_all)) deps;
     let rec inner_loop p =
       let reqs_imm = download_and_install ~force_me:force p in
       if !auto_reinstall then
@@ -328,7 +335,7 @@ let install_dep p =
     in
     inner_loop p
   in
-  Dep.all_deps p |> loop ~force:(!force || !force_all)
+  Dep.all_deps p |> install_tree ~force:(!force || !force_all)
 
 (** MAIN **)
 let () =
