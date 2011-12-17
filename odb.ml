@@ -51,7 +51,7 @@ let cmd_line = Arg.align [
   "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
-  "--debug", Arg.Set debug, " Debug package dependencies"; 
+  "--debug", Arg.Set debug, " Debug package dependencies";
   "--unstable", Arg.Unit (fun () -> repository := "unstable"), " Use unstable repo";
   "--stable", Arg.Unit (fun () -> repository := "stable"), " Use stable repo";
   "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
@@ -59,7 +59,7 @@ let cmd_line = Arg.align [
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
 ]
 
-let () = 
+let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
   if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1);
   if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
@@ -101,8 +101,8 @@ module PL = struct
     Str.split (Str.regexp "\n")
     |- List.filter (fun s -> String.contains s '=')
     |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with
-	| [k;v] -> (k,v) | [k] -> (k,"")
-	| _ -> failwith ("Bad line in alist: " ^ s))
+        | [k;v] -> (k,v) | [k] -> (k,"")
+        | _ -> failwith ("Bad line in alist: " ^ s))
 end
 
 (* locations of files in website *)
@@ -114,12 +114,12 @@ let tarball_uri ?(backup=false) p =
 let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
-let get_info = 
+let get_info =
   let ht = Hashtbl.create 10 in
-  fun id -> try Hashtbl.find ht id 
-    with Not_found -> 
-      try 
-	deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+  fun id -> try Hashtbl.find ht id
+    with Not_found ->
+      try
+        deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
       with Failure _ -> failwith ("Package not in "^ !repository ^" repo: " ^ id)
 
 
@@ -190,7 +190,7 @@ module Dep = struct
            PL.get_b p "is_program") with
     | (true,true) | (false,false) -> test_lib d || test_prog d
     | (true,false) -> test_lib d
-    | (false,true) -> test_prog d 
+    | (false,true) -> test_prog d
   let has_dep (p,v) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
   let parse_vreq vr =
     let l = String.length vr in
@@ -231,9 +231,9 @@ type build_type = Oasis | Omake | Make
 let install_from_dir ~dir ~force_me p =
   Sys.chdir dir;
     (* detect build type based on files in directory *)
-    let buildtype = 
-           if Sys.file_exists "setup.ml" then Oasis 
-      else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake 
+    let buildtype =
+           if Sys.file_exists "setup.ml" then Oasis
+      else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
       else Make in
 
     (* configure installation parameters based on command-line flags *)
@@ -242,9 +242,9 @@ let install_from_dir ~dir ~force_me p =
     let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
     let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
     let config_opt = config_opt ^ " " ^ !configure_flags_global in
-    let install_pre = 
-      if as_root then "sudo " else if !have_perms || !godi then "" else 
-	"OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+    let install_pre =
+      if as_root then "sudo " else if !have_perms || !godi then "" else
+        "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
     (* define exceptions to raise for errors in various steps *)
     let config_fail = Failure ("Could not configure " ^ p.id)  in
@@ -254,20 +254,20 @@ let install_from_dir ~dir ~force_me p =
     (* Do the install *)
     ( match buildtype with
       | Oasis ->
-	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
-	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+        run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+        run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
         (* TODO: MAKE TEST *)
-	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+        run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
       | Omake ->
-	run_or ~cmd:"omake" ~err:build_fail;
+        run_or ~cmd:"omake" ~err:build_fail;
         (* TODO: MAKE TEST *)
-	run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
+        run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
       | Make ->
-	if Sys.file_exists "configure" then
-	  run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
-	run_or ~cmd:"make" ~err:build_fail;
+        if Sys.file_exists "configure" then
+          run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
+        run_or ~cmd:"make" ~err:build_fail;
         (* TODO: MAKE TEST *)
-	run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
+        run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     );
     (* leave the install dir *)
     Sys.chdir !build_dir;
@@ -294,8 +294,8 @@ let download_and_install ~force_me p =
     if force_me && already_installed && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
       let as_root = PL.get_b p "install_as_root" || !sudo in
       let install_pre =
-	if as_root then "sudo " else if !have_perms || !godi then "" else
-	    "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+        if as_root then "sudo " else if !have_perms || !godi then "" else
+            "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
       print_endline ("Uninstalling forced library " ^ p.id);
       Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
     );
@@ -322,18 +322,18 @@ let download_and_install ~force_me p =
 (* install a package and all its deps *)
 let install_dep p =
   printf "Installing %s\n" p.id;
-  let rec install_tree ~force (N (p,deps)) = 
+  let rec install_tree ~force (N (p,deps)) =
     (* take care of child deps first *)
     List.iter (install_tree ~force:!(force_all)) deps;
     let rec inner_loop p =
       let reqs_imm = download_and_install ~force_me:force p in
       if !auto_reinstall then
-	List.iter
-	  (fun p -> try to_pkg p |> inner_loop with _ ->
-	    reqs := p :: !reqs)
-	  reqs_imm
+        List.iter
+          (fun p -> try to_pkg p |> inner_loop with _ ->
+            reqs := p :: !reqs)
+          reqs_imm
       else
-	reqs := reqs_imm @ !reqs;
+        reqs := reqs_imm @ !reqs;
     in
     inner_loop p
   in
