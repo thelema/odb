@@ -6,16 +6,17 @@
 
 module Fn = Filename
 
+let getenv_def ~def v = try Sys.getenv v with Not_found -> def
+
 (* Configurable parameters, some by command line *)
 let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 (*let webroot = "http://mutt.cse.msu.edu:8081/" *)
-let odb_home =
-  try Sys.getenv "ODB_BASE"
-  with Not_found -> Fn.concat (Sys.getenv "HOME") ".odb"
+let default_base = Fn.concat (Sys.getenv "HOME") ".odb"
+let odb_home = getenv_def ~def:default_base "ODB_INSTALL_DIR"
 let odb_lib = Fn.concat odb_home "lib"
 let odb_stubs = Fn.concat odb_home "/lib/stublibs"
 let odb_bin = Fn.concat odb_home "bin"
-let build_dir = ref odb_home
+let build_dir = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
 let cleanup = ref false
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
