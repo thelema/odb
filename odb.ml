@@ -9,7 +9,7 @@ module Fn = Filename
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
 
 (* Configurable parameters, some by command line *)
-let webroot = "http://oasis.ocamlcore.org/dev/odb/"
+let webroot = getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT"
 (*let webroot = "http://mutt.cse.msu.edu:8081/" *)
 let default_base = Fn.concat (Sys.getenv "HOME") ".odb"
 let odb_home = getenv_def ~def:default_base "ODB_INSTALL_DIR"
