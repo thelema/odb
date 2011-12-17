@@ -9,7 +9,9 @@ module Fn = Filename
 (* Configurable parameters, some by command line *)
 let webroot = "http://oasis.ocamlcore.org/dev/odb/"
 (*let webroot = "http://mutt.cse.msu.edu:8081/" *)
-let odb_home = Fn.concat (Sys.getenv "HOME") ".odb"
+let odb_home =
+  try Sys.getenv "ODB_BASE"
+  with Not_found -> Fn.concat (Sys.getenv "HOME") ".odb"
 let odb_lib = Fn.concat odb_home "lib"
 let odb_stubs = Fn.concat odb_home "/lib/stublibs"
 let odb_bin = Fn.concat odb_home "bin"
