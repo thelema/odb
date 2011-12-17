@@ -38,7 +38,6 @@ let (|-) f g x = g (f x)
 let tap f x = f x; x
 let dtap f x = if !debug then f x; x
 let (//) x y = if x = "" then y else x
-let getenv v = try Sys.getenv v with Not_found -> ""
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 
 (* Command line argument handling *)
