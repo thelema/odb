@@ -120,34 +120,24 @@ let get_info =
   let ht = Hashtbl.create 10 in
   fun id -> try Hashtbl.find ht id
     with Not_found ->
-      try
-        List.map (
-          fun webroot ->
-            try Some (deps_uri id webroot |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id))
-            with Failure _ -> None
-        ) webroots
-        |> List.filter (( <> ) None)
-        |> List.map (function Some x -> x | None -> assert false)
-        |> List.hd
-      with Failure _ -> failwith ("Package not in "^ !repository ^" repo: " ^ id)
+      let rec find_uri = function
+        | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
+        | webroot :: tl ->
+            try deps_uri id webroot |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+            with Failure _ -> find_uri tl
+      in
+      find_uri webroots
 
 let get_tarball p =
   let fn = PL.get ~p ~n:"tarball" in
-  try
-    ignore (List.find (
-      fun webroot ->
-        try tarball_uri p webroot |> Http.get_fn ~silent:false ~fn:fn; true
-        with Failure _ -> false
-    ) webroots);
-    fn
-  with
-  | Not_found ->
-      ignore (List.find (
-        fun webroot ->
-          try tarball_uri ~backup:true p webroot |> Http.get_fn ~silent:false ~fn:fn; true
-          with Failure _ -> false
-      ) webroots);
-      fn
+  let rec find_uri ?backup = function
+    | [] -> failwith ("Tarball not in " ^ !repository ^" repo: " ^ p.id)
+    | webroot :: tl ->
+        try tarball_uri ?backup p webroot |> Http.get_fn ~silent:false ~fn:fn; fn
+        with Failure _ -> find_uri tl
+  in
+  try find_uri webroots
+  with Failure _ -> find_uri ~backup:true webroots
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id=id; props=get_info id}
