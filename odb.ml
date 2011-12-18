@@ -9,8 +9,10 @@ module Fn = Filename
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
 
 (* Configurable parameters, some by command line *)
-let webroot = getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT"
-(*let webroot = "http://mutt.cse.msu.edu:8081/" *)
+let webroots =
+  Str.split (Str.regexp "|")
+    (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
+(*let webroots = ["http://mutt.cse.msu.edu:8081/"] *)
 let default_base = Fn.concat (Sys.getenv "HOME") ".odb"
 let odb_home = getenv_def ~def:default_base "ODB_INSTALL_DIR"
 let odb_lib = Fn.concat odb_home "lib"
@@ -106,12 +108,12 @@ module PL = struct
 end
 
 (* locations of files in website *)
-let tarball_uri ?(backup=false) p =
+let tarball_uri ?(backup=false) p webroot =
   if backup then
     webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
   else
     webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
-let deps_uri id = webroot ^ !repository ^ "/pkg/info/" ^ id
+let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 
 (* wrapper functions to get data from server *)
 let get_info =
@@ -119,17 +121,33 @@ let get_info =
   fun id -> try Hashtbl.find ht id
     with Not_found ->
       try
-        deps_uri id |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+        List.map (
+          fun webroot ->
+            try Some (deps_uri id webroot |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id))
+            with Failure _ -> None
+        ) webroots
+        |> List.filter (( <> ) None)
+        |> List.map (function Some x -> x | None -> assert false)
+        |> List.hd
       with Failure _ -> failwith ("Package not in "^ !repository ^" repo: " ^ id)
-
 
 let get_tarball p =
   let fn = PL.get ~p ~n:"tarball" in
-  ( try
-      tarball_uri p |> Http.get_fn ~silent:false ~fn:fn;
-    with Failure _ ->
-      tarball_uri ~backup:true p |> Http.get_fn ~silent:false ~fn:fn; );
-  fn
+  try
+    ignore (List.find (
+      fun webroot ->
+        try tarball_uri p webroot |> Http.get_fn ~silent:false ~fn:fn; true
+        with Failure _ -> false
+    ) webroots);
+    fn
+  with
+  | Not_found ->
+      ignore (List.find (
+        fun webroot ->
+          try tarball_uri ~backup:true p webroot |> Http.get_fn ~silent:false ~fn:fn; true
+          with Failure _ -> false
+      ) webroots);
+      fn
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id=id; props=get_info id}
@@ -353,8 +371,24 @@ let () =
   if !cleanup then
     Sys.command ("rm -rf install-*") |> ignore;
   if !to_install = [] && not !cleanup then ( (* list packages to install *)
-    let pkgs = deps_uri "00list" |> Http.get in
-    printf "Available packages: %s\n" pkgs
+    let pkgs =
+      List.map (
+        fun wr ->
+          try deps_uri "00list" wr |> Http.get
+          with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
+      ) webroots
+      |> String.concat " "
+    in
+    let pkgs = Str.split (Str.regexp " +") pkgs in
+    match pkgs with
+    | [] ->
+        print_endline "No packages available"
+    | hd :: tl ->
+        (* Remove duplicate entries (inefficiently) *)
+        let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
+        print_string "Available packages:";
+        List.iter (printf " %s") (List.rev pkgs);
+        print_newline ();
   ) else ( (* install listed packages *)
     List.iter (to_pkg |- install_dep) !to_install;
     if !reqs <> [] then (
