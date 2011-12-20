@@ -25,9 +25,10 @@ let to_install = ref []
 let force = ref false
 let force_all = ref false
 let debug = ref false
-let repository = ref "testing"
+let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false
+let ignore_unknown = ref false
 let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
 let configure_flags = ref ""
 let configure_flags_global = ref ""
@@ -57,8 +58,8 @@ let cmd_line = Arg.align [
   "--unstable", Arg.Unit (fun () -> repository := "unstable"), " Use unstable repo";
   "--stable", Arg.Unit (fun () -> repository := "stable"), " Use stable repo";
   "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
-  "--repo", Arg.Set_string repository, " Set repository [stable, testing, unstable]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
+  "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
 ]
 
 let () =
@@ -111,7 +112,7 @@ end
 let tarball_uri ?(backup=false) p webroot =
   if backup then
     webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
-  else
+  else 
     webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 
@@ -140,7 +141,7 @@ let get_tarball p =
   with Failure _ -> find_uri ~backup:true webroots
 
 (* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = {id=id; props=get_info id}
+let to_pkg id = {id = id; props = get_info id}
 
 (* Version number handling *)
 module Ver = struct
@@ -152,15 +153,22 @@ module Ver = struct
   (* *)
   let rec cmp : ver -> ver -> int = fun a b -> match a,b with
     | [],[] -> 0 (* each component was equal *)
-    | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t (* ignore trailing .0's *)
-    | _::_,[] -> 1 | [], _::_ -> -1 (* longer version numbers are before shorter ones *)
-    | (x::xt), (y::yt) when x=y -> cmp xt yt (* compare tails when heads are equal *)
-    | (Num x::_), (Num y::_) -> compare (x:int) y  (* just compare numbers *)
-    | (Str x::_), (Str y::_) -> compare (x:string) y (* extend with name ordering? *)
+    (* ignore trailing .0's *)
+    | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t 
+    (* longer version numbers are before shorter ones *)
+    | _::_,[] -> 1 | [], _::_ -> -1 
+    (* compare tails when heads are equal *)
+    | (x::xt), (y::yt) when x=y -> cmp xt yt 
+    (* just compare numbers *)
+    | (Num x::_), (Num y::_) -> compare (x:int) y  
+    (* extend with name ordering? *)
+    | (Str x::_), (Str y::_) -> compare (x:string) y 
     | (Num x::_), (Str y::_) -> -1 (* a number is always before a string *)
     | (Str x::_), (Num y::_) -> 1  (* a string is always after a number *)
 
-  let to_ver = function Str.Delim s -> Str s | Str.Text s -> Num (int_of_string s)
+  let to_ver = function 
+    | Str.Delim s -> Str s 
+    | Str.Text s -> Num (int_of_string s)
   let parse_ver v =
     try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
     with Failure _ -> failwith ("Could not parse version: " ^ v)
@@ -187,7 +195,8 @@ module Dep = struct
     let p_id_len = String.length p.id in
     try
       Fl_package_base.package_users [] [p.id]
-      |> List.filter (fun r -> String.length r < p_id_len || String.sub r 0 p_id_len <> p.id)
+      |> List.filter (fun r -> String.length r < p_id_len 
+	                    || String.sub r 0 p_id_len <> p.id)
     with Findlib.No_such_package _ ->
       []
 
@@ -208,12 +217,15 @@ module Dep = struct
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
   let whitespace_rx = Str.regexp "[ \t]+"
   let make_dep str =
-    let str = Str.global_replace whitespace_rx "" str in
-    match Str.bounded_split (Str.regexp_string "(") str 2 with
-      | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
-      | _ -> to_pkg str, None
+    try 
+      let str = Str.global_replace whitespace_rx "" str in
+      match Str.bounded_split (Str.regexp_string "(") str 2 with
+        | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
+        | _ -> to_pkg str, None
+    with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
   let get_deps p =
-    PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
+    PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep 
+      |> List.filter (fun (p,_) -> p.id = "")
   let rec all_deps p =
     let ds = get_deps p |> List.filter (has_dep |- not) in
     N (p, List.map (fst |- all_deps) ds)
@@ -257,15 +269,16 @@ let install_from_dir ~dir ~force_me p =
     (* define exceptions to raise for errors in various steps *)
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
+    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
     (* Do the install *)
     ( match buildtype with
       | Oasis ->
-        run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
-        run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-        (* TODO: MAKE TEST *)
-        run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail; 
+	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
       | Omake ->
         run_or ~cmd:"omake" ~err:build_fail;
         (* TODO: MAKE TEST *)
@@ -277,8 +290,6 @@ let install_from_dir ~dir ~force_me p =
         (* TODO: MAKE TEST *)
         run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
     );
-    (* leave the install dir *)
-    Sys.chdir !build_dir;
     (* test whether installation was successful *)
     if not (Dep.has_dep (p,None)) then (
       print_endline ("Problem with installed package: " ^ p.id);
@@ -317,20 +328,25 @@ let download_and_install ~force_me p =
     (* Extract our tarball in that directory *)
     Sys.chdir install_dir;
     let tb = get_tarball p in
-    let extract_cmd = extract_cmd tb in
-    run_or ~cmd:extract_cmd
-      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
-
-    (* detect and enter directory created by tarball *)
-    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-    let dir = match dirs with | [] -> "." | h::_ -> h in
-    install_from_dir ~dir ~force_me p
+    let ret = if tb = "" then [] else 
+      let extract_cmd = extract_cmd tb in
+      run_or ~cmd:extract_cmd
+	~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+      
+      (* detect and enter directory created by tarball *)
+      let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
+      let dir = match dirs with | [] -> "." | h::_ -> h in
+      install_from_dir ~dir ~force_me p
+    in
+    (* leave the install dir *)
+    Sys.chdir !build_dir;
+    ret
   )
 
 (* install a package and all its deps *)
 let install_dep p =
-  printf "Installing %s\n" p.id;
-  let rec install_tree ~force (N (p,deps)) =
+  printf "Installing %s\n%!" p.id;
+  let rec install_tree ~force (N (p,deps)) = 
     (* take care of child deps first *)
     List.iter (install_tree ~force:!(force_all)) deps;
     let rec inner_loop p =
