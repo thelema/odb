@@ -173,6 +173,8 @@ module Ver = struct
     try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
     with Failure _ -> failwith ("Could not parse version: " ^ v)
 
+  let comp_to_string = function Str s -> s | Num n -> string_of_int n
+  let to_string v = List.map comp_to_string v |> String.concat ""
 end
 
 (* Dependency comparison library *)
@@ -181,15 +183,9 @@ module Dep = struct
   type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
   type dep = pkg * (cmp * ver) option
   let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
-  let ver_sat req v2 = v2 <> [] && match req with
+  let ver_sat ~req = function None -> false | Some ver -> match req with
     | None -> true
-    | Some (c, v1) -> comp (Ver.cmp v1 v2) 0 c
-
-  let test_lib (p, v) =
-    try
-      Findlib.package_property [] p.id "version" |> parse_ver |> ver_sat v
-    with Findlib.No_such_package _ ->
-      false
+    | Some (c, vreq) -> comp (Ver.cmp vreq ver) 0 c
 
   let get_reqs p =
     let p_id_len = String.length p.id in
@@ -200,15 +196,33 @@ module Dep = struct
     with Findlib.No_such_package _ ->
       []
 
-  let test_prog (p, _v) = Sys.command ("which " ^ p.id ^ "> /dev/null") = 0
+  let installed_ver_lib p =
+    try Some (Findlib.package_property [] p.id "version" |> parse_ver)
+    with Findlib.No_such_package _ -> None
 
-  let has_dep (p,_ as d) =
+  let installed_ver_prog p =
+    if Sys.command ("which \"" ^ p.id ^ "\" > /dev/null") <> 0 then None
+    else
+      try
+        let fn = Fn.temp_file "odb" ".ver" in
+        ignore(Sys.command (p.id ^ " --version > " ^ fn ^ " 2> /dev/null"));
+        let ic = open_in fn in
+        let ver_string = input_line ic in
+        close_in ic;
+        Sys.remove fn;
+        Some (parse_ver ver_string)
+      with _ -> Some [] (* unknown ver *)
+
+  let get_ver p =
     match (PL.get_b p "is_library",
            PL.get_b p "is_program") with
-    | (true,true) | (false,false) -> test_lib d || test_prog d
-    | (true,false) -> test_lib d
-    | (false,true) -> test_prog d
-  let has_dep (p,v) = has_dep (p,v) |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
+    | (true,true) | (false,false) ->
+      (match installed_ver_lib p with None -> installed_ver_prog p | x -> x)
+    | (true,false) -> installed_ver_lib p
+    | (false,true) -> installed_ver_prog p
+  let has_dep (p,v) =
+    get_ver p |> ver_sat ~req:v
+    |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
   let parse_vreq vr =
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
@@ -269,7 +283,7 @@ let install_from_dir ~dir ~force_me p =
     (* define exceptions to raise for errors in various steps *)
     let config_fail = Failure ("Could not configure " ^ p.id)  in
     let build_fail = Failure ("Could not build " ^ p.id) in
-    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in
+(*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
     (* Do the install *)
@@ -277,7 +291,7 @@ let install_from_dir ~dir ~force_me p =
       | Oasis ->
 	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
 	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;
+        (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
 	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
       | Omake ->
         run_or ~cmd:"omake" ~err:build_fail;
@@ -302,46 +316,45 @@ let install_from_dir ~dir ~force_me p =
     Dep.get_reqs p (* return the reqs *)
 
 let download_and_install ~force_me p =
-  let already_installed = Dep.has_dep (p,None) in
-  if not force_me && already_installed then (
-    if !force then
-      print_endline ("Dependency " ^ p.id ^ " already installed, use --force-all to reinstall")
-    else
-      print_endline ("Package " ^ p.id ^ " already installed, use --force to reinstall");
-    []
-  ) else (
-    if force_me && already_installed && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
-      let as_root = PL.get_b p "install_as_root" || !sudo in
-      let install_pre =
-        if as_root then "sudo " else if !have_perms || !godi then "" else
-            "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
-      print_endline ("Uninstalling forced library " ^ p.id);
-      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
-    );
+  match force_me, Dep.get_ver p with
+    | false, Some v ->
+      if !force then
+        printf "Dependency %s(%s) already installed, use --force-all to reinstall\n" p.id (Ver.to_string v)
+      else
+        printf "Package %s(%s) already installed, use --force to reinstall\n" p.id (Ver.to_string v);
+      []
+    | _, v ->
+      if force_me && v <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+        let as_root = PL.get_b p "install_as_root" || !sudo in
+        let install_pre =
+          if as_root then "sudo " else if !have_perms || !godi then "" else
+              "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+        print_endline ("Uninstalling forced library " ^ p.id);
+        Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
+      );
 
     (* Set up the directory to install into *)
-    let install_dir = "install-" ^ p.id in
-    if Sys.file_exists install_dir then
-      Sys.command ("rm -rf " ^ install_dir) |> ignore;
-    Unix.mkdir install_dir 0o700;
+      let install_dir = "install-" ^ p.id in
+      if Sys.file_exists install_dir then
+        Sys.command ("rm -rf " ^ install_dir) |> ignore;
+      Unix.mkdir install_dir 0o700;
 
     (* Extract our tarball in that directory *)
-    Sys.chdir install_dir;
-    let tb = get_tarball p in
-    let ret = if tb = "" then [] else
-      let extract_cmd = extract_cmd tb in
-      run_or ~cmd:extract_cmd
-	~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+      Sys.chdir install_dir;
+      let tb = get_tarball p in
+      let ret = if tb = "" then [] else
+          let extract_cmd = extract_cmd tb in
+          run_or ~cmd:extract_cmd
+	    ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
 
       (* detect and enter directory created by tarball *)
-      let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-      let dir = match dirs with | [] -> "." | h::_ -> h in
-      install_from_dir ~dir ~force_me p
-    in
+          let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
+          let dir = match dirs with | [] -> "." | h::_ -> h in
+          install_from_dir ~dir ~force_me p
+      in
     (* leave the install dir *)
-    Sys.chdir !build_dir;
-    ret
-  )
+      Sys.chdir !build_dir;
+      ret
 
 (* install a package and all its deps *)
 let install_dep p =
