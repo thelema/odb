@@ -112,7 +112,7 @@ end
 let tarball_uri ?(backup=false) p webroot =
   if backup then
     webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
-  else 
+  else
     webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 
@@ -154,20 +154,20 @@ module Ver = struct
   let rec cmp : ver -> ver -> int = fun a b -> match a,b with
     | [],[] -> 0 (* each component was equal *)
     (* ignore trailing .0's *)
-    | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t 
+    | Str"."::Num 0::t, [] -> cmp t [] | [], Str"."::Num 0::t -> cmp [] t
     (* longer version numbers are before shorter ones *)
-    | _::_,[] -> 1 | [], _::_ -> -1 
+    | _::_,[] -> 1 | [], _::_ -> -1
     (* compare tails when heads are equal *)
-    | (x::xt), (y::yt) when x=y -> cmp xt yt 
+    | (x::xt), (y::yt) when x=y -> cmp xt yt
     (* just compare numbers *)
-    | (Num x::_), (Num y::_) -> compare (x:int) y  
+    | (Num x::_), (Num y::_) -> compare (x:int) y
     (* extend with name ordering? *)
-    | (Str x::_), (Str y::_) -> compare (x:string) y 
+    | (Str x::_), (Str y::_) -> compare (x:string) y
     | (Num x::_), (Str y::_) -> -1 (* a number is always before a string *)
     | (Str x::_), (Num y::_) -> 1  (* a string is always after a number *)
 
-  let to_ver = function 
-    | Str.Delim s -> Str s 
+  let to_ver = function
+    | Str.Delim s -> Str s
     | Str.Text s -> Num (int_of_string s)
   let parse_ver v =
     try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
@@ -195,7 +195,7 @@ module Dep = struct
     let p_id_len = String.length p.id in
     try
       Fl_package_base.package_users [] [p.id]
-      |> List.filter (fun r -> String.length r < p_id_len 
+      |> List.filter (fun r -> String.length r < p_id_len
 	                    || String.sub r 0 p_id_len <> p.id)
     with Findlib.No_such_package _ ->
       []
@@ -217,15 +217,15 @@ module Dep = struct
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
   let whitespace_rx = Str.regexp "[ \t]+"
   let make_dep str =
-    try 
+    try
       let str = Str.global_replace whitespace_rx "" str in
       match Str.bounded_split (Str.regexp_string "(") str 2 with
         | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
         | _ -> to_pkg str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
   let get_deps p =
-    PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep 
-      |> List.filter (fun (p,_) -> p.id = "")
+    PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
+      |> List.filter (fun (p,_) -> p.id <> "")
   let rec all_deps p =
     let ds = get_deps p |> List.filter (has_dep |- not) in
     N (p, List.map (fst |- all_deps) ds)
@@ -277,7 +277,7 @@ let install_from_dir ~dir ~force_me p =
       | Oasis ->
 	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
 	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail; 
+        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;
 	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
       | Omake ->
         run_or ~cmd:"omake" ~err:build_fail;
@@ -328,11 +328,11 @@ let download_and_install ~force_me p =
     (* Extract our tarball in that directory *)
     Sys.chdir install_dir;
     let tb = get_tarball p in
-    let ret = if tb = "" then [] else 
+    let ret = if tb = "" then [] else
       let extract_cmd = extract_cmd tb in
       run_or ~cmd:extract_cmd
 	~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
-      
+
       (* detect and enter directory created by tarball *)
       let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
       let dir = match dirs with | [] -> "." | h::_ -> h in
@@ -346,7 +346,7 @@ let download_and_install ~force_me p =
 (* install a package and all its deps *)
 let install_dep p =
   printf "Installing %s\n%!" p.id;
-  let rec install_tree ~force (N (p,deps)) = 
+  let rec install_tree ~force (N (p,deps)) =
     (* take care of child deps first *)
     List.iter (install_tree ~force:!(force_all)) deps;
     let rec inner_loop p =
