@@ -51,7 +51,7 @@ let cmd_line = Arg.align [
   "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
   "--no-godi", Arg.Clear godi, " Disable use of auto-detected GODI paths";
   "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
-  "--configure-flags-global", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
+  "--configure-flags-all", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
   "--debug", Arg.Set debug, " Debug package dependencies";
