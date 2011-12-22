@@ -4,8 +4,16 @@
 #require "unix";;
 #require "findlib";;
 
+(* micro-stdlib *)
 module Fn = Filename
-
+open Printf
+let (|>) x f = f x
+let (|-) f g x = g (f x)
+let tap f x = f x; x
+let debug = ref false
+let dtap f x = if !debug then f x; x
+let (//) x y = if x = "" then y else x
+let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
 
 (* Configurable parameters, some by command line *)
@@ -24,7 +32,6 @@ let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
 let force = ref false
 let force_all = ref false
-let debug = ref false
 let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false
@@ -34,14 +41,6 @@ let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
 
-(* micro-stdlib *)
-open Printf
-let (|>) x f = f x
-let (|-) f g x = g (f x)
-let tap f x = f x; x
-let dtap f x = if !debug then f x; x
-let (//) x y = if x = "" then y else x
-let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
@@ -195,11 +194,9 @@ module Dep = struct
 	                    || String.sub r 0 p_id_len <> p.id)
     with Findlib.No_such_package _ ->
       []
-
   let installed_ver_lib p =
     try Some (Findlib.package_property [] p.id "version" |> parse_ver)
     with Findlib.No_such_package _ -> None
-
   let installed_ver_prog p =
     if Sys.command ("which \"" ^ p.id ^ "\" > /dev/null") <> 0 then None
     else
@@ -212,7 +209,6 @@ module Dep = struct
         Sys.remove fn;
         Some (parse_ver ver_string)
       with _ -> Some [] (* unknown ver *)
-
   let get_ver p =
     match (PL.get_b p "is_library",
            PL.get_b p "is_program") with
