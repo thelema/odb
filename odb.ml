@@ -105,15 +105,14 @@ module PL = struct
     |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with
         | [k;v] -> (k,v) | [k] -> (k,"")
         | _ -> failwith ("Bad line in alist: " ^ s))
+  let modify_assoc ~n f pl = try let old_v = List.assoc n pl in
+    (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
 end
 
-(* locations of files in website *)
-let tarball_uri ?(backup=false) p webroot =
-  if backup then
-    webroot ^ !repository ^ "/pkg/backup/" ^ (PL.get ~p ~n:"tarball")
-  else
-    webroot ^ !repository ^ "/pkg/" ^ (PL.get ~p ~n:"tarball")
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
+let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> tap (printf "tarball at %s\n")
+(* locations of files in website *)
+let tarball_uri p webroot = PL.get ~p ~n:"tarball"
 
 (* wrapper functions to get data from server *)
 let get_info =
@@ -123,21 +122,24 @@ let get_info =
       let rec find_uri = function
         | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
         | webroot :: tl ->
-            try deps_uri id webroot |> Http.get |> PL.of_string |> tap (Hashtbl.add ht id)
+            try deps_uri id webroot |> Http.get |> PL.of_string
+	        |> tap (Hashtbl.add ht id)
+		|> (fun l -> ("file", (List.assoc "tarball" l))::l)
+		|> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
             with Failure _ -> find_uri tl
       in
       find_uri webroots
 
 let get_tarball p =
-  let fn = PL.get ~p ~n:"tarball" in
-  let rec find_uri ?backup = function
+  let fn = PL.get ~p ~n:"file" in
+  let rec find_uri = function
     | [] -> failwith ("Tarball not in " ^ !repository ^" repo: " ^ p.id)
     | webroot :: tl ->
-        try tarball_uri ?backup p webroot |> Http.get_fn ~silent:false ~fn:fn; fn
+        try tarball_uri p webroot |> Http.get_fn ~silent:false ~fn
         with Failure _ -> find_uri tl
   in
-  try find_uri webroots
-  with Failure _ -> find_uri ~backup:true webroots
+  find_uri webroots;
+  fn
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id = id; props = get_info id}
@@ -233,12 +235,24 @@ module Dep = struct
         | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
         | _ -> to_pkg str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
-  let get_deps p =
-    PL.get ~p ~n:"deps" |> Str.split (Str.regexp ",") |> List.map make_dep
+  let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
       |> List.filter (fun (p,_) -> p.id <> "")
+  let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
   let rec all_deps p =
     let ds = get_deps p |> List.filter (has_dep |- not) in
     N (p, List.map (fst |- all_deps) ds)
+  let of_oasis () = (* reads the _oasis file in the current directory *)
+    if not (Sys.file_exists "_oasis") then [] else
+      let deps = ref [] in
+      let ic = open_in "_oasis" in
+      try while true do
+	  let line = input_line ic in
+	  match Str.bounded_split (Str.regexp_string ":") line 2 with
+	    | [("BuildDepends"|"  BuildDepends"); ds] -> (* FIXME, fragile *)
+	      deps := (string_to_deps ds) @ !deps;
+	    | _ -> ()
+	done; assert false
+      with End_of_file -> close_in ic; !deps
 end
 
 let extract_cmd fn =
