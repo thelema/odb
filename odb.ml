@@ -110,7 +110,7 @@ module PL = struct
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
-let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> tap (printf "tarball at %s\n")
+let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (printf "tarball at %s\n")
 (* locations of files in website *)
 let tarball_uri p webroot = PL.get ~p ~n:"tarball"
 
@@ -124,7 +124,7 @@ let get_info =
         | webroot :: tl ->
             try deps_uri id webroot |> Http.get |> PL.of_string
 	        |> tap (Hashtbl.add ht id)
-		|> (fun l -> ("file", (List.assoc "tarball" l))::l)
+		|> (fun l -> try ("file", (List.assoc "tarball" l))::l with Not_found -> l)
 		|> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
             with Failure _ -> find_uri tl
       in
