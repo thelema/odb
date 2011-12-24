@@ -69,15 +69,16 @@ let () =
 
 (* micro-http library *)
 module Http = struct
-  let get_fn ?(silent=true) uri ~fn =
+  let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
     if !debug then printf "Getting URI: %s\n%!" uri;
     let s = if silent then " -s" else "" in
     if Sys.command ("curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
-      failwith ("Curl failed to get " ^ uri)
+      failwith ("Curl failed to get " ^ uri);
+    fn
 
-  let get uri =
+  let get_contents uri =
     let fn = Fn.temp_file "odb" ".info" in
-    get_fn uri ~fn;
+    ignore(get_fn uri ~fn ());
     let ic = open_in fn in
     let len = in_channel_length ic in
     let ret = String.create len in
@@ -105,41 +106,44 @@ module PL = struct
     |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with
         | [k;v] -> (k,v) | [k] -> (k,"")
         | _ -> failwith ("Bad line in alist: " ^ s))
+  let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl = try let old_v = List.assoc n pl in
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (printf "tarball at %s\n")
-(* locations of files in website *)
-let tarball_uri p webroot = PL.get ~p ~n:"tarball"
 
 (* wrapper functions to get data from server *)
-let get_info =
-  let ht = Hashtbl.create 10 in
-  fun id -> try Hashtbl.find ht id
+let info_cache = Hashtbl.create 10
+let get_info id =
+ try Hashtbl.find info_cache id
     with Not_found ->
       let rec find_uri = function
         | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
         | webroot :: tl ->
-            try deps_uri id webroot |> Http.get |> PL.of_string
-	        |> tap (Hashtbl.add ht id)
-		|> (fun l -> try ("file", (List.assoc "tarball" l))::l with Not_found -> l)
+            try deps_uri id webroot |> Http.get_contents |> PL.of_string
+	        |> tap (Hashtbl.add info_cache id)
 		|> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
             with Failure _ -> find_uri tl
       in
       find_uri webroots
 
-let get_tarball p =
-  let fn = PL.get ~p ~n:"file" in
-  let rec find_uri = function
-    | [] -> failwith ("Tarball not in " ^ !repository ^" repo: " ^ p.id)
-    | webroot :: tl ->
-        try tarball_uri p webroot |> Http.get_fn ~silent:false ~fn
-        with Failure _ -> find_uri tl
-  in
-  find_uri webroots;
-  fn
+let read_local_info () =
+  let fn = Fn.concat odb_home "packages" in
+  if Sys.file_exists fn then
+    let ic = open_in fn in
+    try while true do
+        match Str.bounded_split (Str.regexp " *") (input_line ic) 4 with
+          | ["dep"; id; "remote-tar-gz"; url] ->
+            Hashtbl.add info_cache id ["tarball", url]
+          | ["dep"; id; "local-dir"; dir] ->
+            Hashtbl.add info_cache id ["dir", dir]
+          | _ -> ()
+      done; assert false
+    with End_of_file -> ()
+
+let get_tarball p = Http.get_fn ~silent:false (PL.get ~p ~n:"tarball") ()
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id = id; props = get_info id}
@@ -183,10 +187,13 @@ module Dep = struct
   open Ver
   type cmp = GE | EQ | GT (* Add more?  Add &&, ||? *)
   type dep = pkg * (cmp * ver) option
-  let comp x y = function GE -> x >= y | EQ -> x = y | GT -> x > y
+  let comp vc = function GE -> vc >= 0 | EQ -> vc = 0 | GT -> vc > 0
+  let comp_to_string = function GE -> ">=" | EQ -> "=" | GT -> ">"
   let ver_sat ~req = function None -> false | Some ver -> match req with
     | None -> true
-    | Some (c, vreq) -> comp (Ver.cmp vreq ver) 0 c
+    | Some (c, vreq) -> comp (Ver.cmp ver vreq) c
+  let req_to_string = function None -> ""
+    | Some (c,ver) -> (comp_to_string c) ^ (Ver.to_string ver)
 
   let get_reqs p =
     let p_id_len = String.length p.id in
@@ -218,9 +225,9 @@ module Dep = struct
       (match installed_ver_lib p with None -> installed_ver_prog p | x -> x)
     | (true,false) -> installed_ver_lib p
     | (false,true) -> installed_ver_prog p
-  let has_dep (p,v) =
-    get_ver p |> ver_sat ~req:v
-    |> dtap (fun r -> printf "Package %s dependency satisfied: %B\n%!" p.id r)
+  let has_dep (p,req) =
+    get_ver p |> ver_sat ~req
+    |> dtap (fun r -> printf "Package %s(%s) dependency satisfied: %B\n%!" p.id (req_to_string req) r)
   let parse_vreq vr =
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
@@ -272,7 +279,8 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
-let install_from_dir ~dir ~force_me p =
+let install_from_dir p =
+  let dir = PL.get ~p ~n:"dir" in
   Sys.chdir dir;
     (* detect build type based on files in directory *)
     let buildtype =
@@ -325,16 +333,40 @@ let install_from_dir ~dir ~force_me p =
     print_endline ("Successfully installed " ^ p.id);
     Dep.get_reqs p (* return the reqs *)
 
-let download_and_install ~force_me p =
-  match force_me, Dep.get_ver p with
-    | false, Some v ->
-      if !force then
-        printf "Dependency %s(%s) already installed, use --force-all to reinstall\n" p.id (Ver.to_string v)
-      else
-        printf "Package %s(%s) already installed, use --force to reinstall\n" p.id (Ver.to_string v);
+let download_and_install p =
+  (* Set up the directory to install into *)
+  let install_dir = "install-" ^ p.id in
+  if Sys.file_exists install_dir then
+    Sys.command ("rm -rf " ^ install_dir) |> ignore;
+  Unix.mkdir install_dir 0o700;
+
+  (* Extract our tarball in that directory *)
+  Sys.chdir install_dir;
+  let tb = get_tarball p in
+  if tb = "" then [] else
+    let extract_cmd = extract_cmd tb in
+    run_or ~cmd:extract_cmd
+      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+
+    (* detect and enter directory created by tarball *)
+    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
+    let dir = match dirs with | [] -> "." | h::_ -> h in
+    PL.add ~p "dir" dir;
+    install_from_dir p
+
+let install_package ~root p =
+  let force_me = !force_all || (root && !force) in
+  match Dep.get_ver p with
+    | Some v when not root && not !force_all ->
+      printf "\nDependency %s has version %s but needs to be upgraded.\nTo allow odb to do this, use --force-all\nAborting." p.id (Ver.to_string v);
+      exit 1
+    | Some v when not force_me ->
+      let cat, arg = if root then "Package", "--force" else "Dependency", "--force-all" in
+      printf "%s %s(%s) already installed, use %s to reinstall\n" cat p.id (Ver.to_string v) arg;
       []
-    | _, v ->
+    | v ->
       if force_me && v <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+          (* uninstall forced libraries *)
         let as_root = PL.get_b p "install_as_root" || !sudo in
         let install_pre =
           if as_root then "sudo " else if !have_perms || !godi then "" else
@@ -343,52 +375,40 @@ let download_and_install ~force_me p =
         Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
       );
 
-    (* Set up the directory to install into *)
-      let install_dir = "install-" ^ p.id in
-      if Sys.file_exists install_dir then
-        Sys.command ("rm -rf " ^ install_dir) |> ignore;
-      Unix.mkdir install_dir 0o700;
-
-    (* Extract our tarball in that directory *)
-      Sys.chdir install_dir;
-      let tb = get_tarball p in
-      let ret = if tb = "" then [] else
-          let extract_cmd = extract_cmd tb in
-          run_or ~cmd:extract_cmd
-	    ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
-
-      (* detect and enter directory created by tarball *)
-          let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-          let dir = match dirs with | [] -> "." | h::_ -> h in
-          install_from_dir ~dir ~force_me p
+      let ret =
+        if PL.get ~p ~n:"tarball" <> "" then
+          download_and_install p
+        else if PL.get ~p ~n:"dir" <> "" then
+          install_from_dir p
+        else failwith ("No installation method available for: " ^ p.id)
       in
-    (* leave the install dir *)
+      (* return to build dir *)
       Sys.chdir !build_dir;
       ret
 
 (* install a package and all its deps *)
-let install_dep p =
+let install_full p =
   printf "Installing %s\n%!" p.id;
-  let rec install_tree ~force (N (p,deps)) =
+  let rec install_tree ~root (N (p,deps)) =
     (* take care of child deps first *)
-    List.iter (install_tree ~force:!(force_all)) deps;
-    let rec inner_loop p =
-      let reqs_imm = download_and_install ~force_me:force p in
+    List.iter (install_tree ~root:false) deps;
+    let rec install_get_deps p =
+      let reqs_imm = install_package ~root p in
       if !auto_reinstall then
         List.iter
-          (fun p -> try to_pkg p |> inner_loop with _ ->
-            reqs := p :: !reqs)
+          (fun p -> try to_pkg p |> install_get_deps with _ ->
+            reqs := p :: !reqs) (* if install of req fails, print package id *)
           reqs_imm
       else
-        reqs := reqs_imm @ !reqs;
+        reqs := reqs_imm @ !reqs; (* unreinstalled reqs *)
     in
-    inner_loop p
+    install_get_deps p
   in
-  Dep.all_deps p |> install_tree ~force:(!force || !force_all)
+  Dep.all_deps p |> install_tree ~root:true
 
 (** MAIN **)
 let () =
-
+  read_local_info ();
   (* initialize build directory if needed *)
   if !sudo then (
     build_dir := Fn.temp_dir_name
@@ -403,7 +423,7 @@ let () =
     let pkgs =
       List.map (
         fun wr ->
-          try deps_uri "00list" wr |> Http.get
+          try deps_uri "00list" wr |> Http.get_contents
           with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
       ) webroots
       |> String.concat " "
@@ -419,7 +439,7 @@ let () =
         List.iter (printf " %s") (List.rev pkgs);
         print_newline ();
   ) else ( (* install listed packages *)
-    List.iter (to_pkg |- install_dep) !to_install;
+    List.iter (to_pkg |- install_full) !to_install;
     if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
