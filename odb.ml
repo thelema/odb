@@ -90,7 +90,6 @@ end
 
 (* Type of a package, with its information in a prop list *)
 type pkg = {id: string; mutable props: (string * string) list}
-type dep_tree = N of pkg * dep_tree list
 
 (* micro property-list library *)
 module PL = struct
@@ -245,9 +244,6 @@ module Dep = struct
   let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
       |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
-  let rec all_deps p =
-    let ds = get_deps p |> List.filter (has_dep |- not) in
-    N (p, List.map (fst |- all_deps) ds)
   let of_oasis () = (* reads the _oasis file in the current directory *)
     if not (Sys.file_exists "_oasis") then [] else
       let deps = ref [] in
@@ -355,56 +351,56 @@ let download_and_install p =
     install_from_dir p
 
 let install_package ~root p =
+  (* uninstall forced libraries *)
+  if (Dep.get_ver p) <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+      let as_root = PL.get_b p "install_as_root" || !sudo in
+      let install_pre =
+        if as_root then "sudo " else if !have_perms || !godi then "" else
+            "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+      print_endline ("Uninstalling forced library " ^ p.id);
+      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
+     );
+
+  let ret =
+    if PL.get ~p ~n:"tarball" <> "" then
+      download_and_install p
+    else if PL.get ~p ~n:"dir" <> "" then
+      install_from_dir p
+    else failwith ("No installation method available for: " ^ p.id)
+  in
+      (* return to build dir *)
+  Sys.chdir !build_dir;
+  ret
+
+(* install a package and all its deps *)
+let rec install_full ?(root=false) p =
   let force_me = !force_all || (root && !force) in
   match Dep.get_ver p with
+    (* abort if old version of dependency exists and no --force-all *)
     | Some v when not root && not !force_all ->
       printf "\nDependency %s has version %s but needs to be upgraded.\nTo allow odb to do this, use --force-all\nAborting." p.id (Ver.to_string v);
       exit 1
+    (* warn if a dependency is already installed *)
     | Some v when not force_me ->
       let cat, arg = if root then "Package", "--force" else "Dependency", "--force-all" in
       printf "%s %s(%s) already installed, use %s to reinstall\n" cat p.id (Ver.to_string v) arg;
-      []
-    | v ->
-      if force_me && v <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
-          (* uninstall forced libraries *)
-        let as_root = PL.get_b p "install_as_root" || !sudo in
-        let install_pre =
-          if as_root then "sudo " else if !have_perms || !godi then "" else
-              "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
-        print_endline ("Uninstalling forced library " ^ p.id);
-        Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
-      );
-
-      let ret =
-        if PL.get ~p ~n:"tarball" <> "" then
-          download_and_install p
-        else if PL.get ~p ~n:"dir" <> "" then
-          install_from_dir p
-        else failwith ("No installation method available for: " ^ p.id)
+    | _ ->
+      printf "Installing %s\n%!" p.id;
+      let deps = Dep.get_deps p in
+      List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
+      printf "Deps for %s satisfied\n%!" p.id;
+      let rec install_get_reqs p =
+        let reqs_imm = install_package ~root p in
+        if !auto_reinstall then
+          List.iter
+            (fun p -> try to_pkg p |> install_get_reqs with _ ->
+              reqs := p :: !reqs) (* if install of req fails, print package id *)
+            reqs_imm
+        else
+          reqs := reqs_imm @ !reqs; (* unreinstalled reqs *)
       in
-      (* return to build dir *)
-      Sys.chdir !build_dir;
-      ret
+      install_get_reqs p
 
-(* install a package and all its deps *)
-let install_full p =
-  printf "Installing %s\n%!" p.id;
-  let rec install_tree ~root (N (p,deps)) =
-    (* take care of child deps first *)
-    List.iter (install_tree ~root:false) deps;
-    let rec install_get_deps p =
-      let reqs_imm = install_package ~root p in
-      if !auto_reinstall then
-        List.iter
-          (fun p -> try to_pkg p |> install_get_deps with _ ->
-            reqs := p :: !reqs) (* if install of req fails, print package id *)
-          reqs_imm
-      else
-        reqs := reqs_imm @ !reqs; (* unreinstalled reqs *)
-    in
-    install_get_deps p
-  in
-  Dep.all_deps p |> install_tree ~root:true
 
 (** MAIN **)
 let () =
@@ -439,7 +435,7 @@ let () =
         List.iter (printf " %s") (List.rev pkgs);
         print_newline ();
   ) else ( (* install listed packages *)
-    List.iter (to_pkg |- install_full) !to_install;
+    List.iter (to_pkg |- install_full ~root:true) !to_install;
     if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
