@@ -133,14 +133,15 @@ let read_local_info () =
   if Sys.file_exists fn then
     let ic = open_in fn in
     try while true do
-        match Str.bounded_split (Str.regexp " *") (input_line ic) 4 with
+        match Str.bounded_split (Str.regexp " +") (input_line ic) 4 with
           | ["dep"; id; "remote-tar-gz"; url] ->
             Hashtbl.add info_cache id ["tarball", url]
           | ["dep"; id; "local-dir"; dir] ->
             Hashtbl.add info_cache id ["dir", dir]
           | _ -> ()
       done; assert false
-    with End_of_file -> ()
+    with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
+
 
 let get_tarball p = Http.get_fn ~silent:false (PL.get ~p ~n:"tarball") ()
 
@@ -350,9 +351,10 @@ let download_and_install p =
     PL.add ~p "dir" dir;
     install_from_dir p
 
-let install_package ~root p =
+let install_package p =
   (* uninstall forced libraries *)
-  if (Dep.get_ver p) <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
+  if (Dep.get_ver p) <> None &&
+     (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
       let as_root = PL.get_b p "install_as_root" || !sudo in
       let install_pre =
         if as_root then "sudo " else if !have_perms || !godi then "" else
@@ -390,7 +392,7 @@ let rec install_full ?(root=false) p =
       List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
       printf "Deps for %s satisfied\n%!" p.id;
       let rec install_get_reqs p =
-        let reqs_imm = install_package ~root p in
+        let reqs_imm = install_package p in
         if !auto_reinstall then
           List.iter
             (fun p -> try to_pkg p |> install_get_reqs with _ ->
