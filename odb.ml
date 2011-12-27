@@ -132,18 +132,27 @@ let read_local_info () =
   let fn = Fn.concat odb_home "packages" in
   if Sys.file_exists fn then
     let ic = open_in fn in
-    try while true do
+    try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
         match Str.bounded_split (Str.regexp " +") (input_line ic) 4 with
           | ["dep"; id; "remote-tar-gz"; url] ->
             Hashtbl.add info_cache id ["tarball", url]
           | ["dep"; id; "local-dir"; dir] ->
             Hashtbl.add info_cache id ["dir", dir]
+          | ["dep"; id; "local-tar-gz"; filename] ->
+            Hashtbl.add info_cache id ["tarball", filename]
+          | ["dep"; id; "git"; url] ->
+            Hashtbl.add info_cache id ["git", url]
           | _ -> ()
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
 
-
-let get_tarball p = Http.get_fn ~silent:false (PL.get ~p ~n:"tarball") ()
+(* returns a local filename for the given tarball *)
+let get_tarball p =
+  let tb = (PL.get ~p ~n:"tarball") in
+  if String.sub tb 0 5 = "http:" || String.sub tb 0 4 = "ftp:" then
+    (* download to current dir *)
+    Http.get_fn ~silent:false tb ()
+  else tb (* assume is a local file already *)
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = {id = id; props = get_info id}
@@ -278,78 +287,86 @@ type build_type = Oasis | Omake | Make
 (* Installing a package *)
 let install_from_dir p =
   let dir = PL.get ~p ~n:"dir" in
+  if dir = "" then failwith ("No installation method available for: " ^ p.id);
   Sys.chdir dir;
-    (* detect build type based on files in directory *)
-    let buildtype =
-           if Sys.file_exists "setup.ml" then Oasis
-      else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
-      else Make in
+  (* detect build type based on files in directory *)
+  let buildtype =
+    if Sys.file_exists "setup.ml" then Oasis
+    else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
+    else Make in
 
-    (* configure installation parameters based on command-line flags *)
-    let as_root = PL.get_b p "install_as_root" || !sudo in
-    let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
-    let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
-    let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
-    let config_opt = config_opt ^ " " ^ !configure_flags_global in
-    let install_pre =
-      if as_root then "sudo " else if !have_perms || !godi then "" else
+  (* configure installation parameters based on command-line flags *)
+  let as_root = PL.get_b p "install_as_root" || !sudo in
+  let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
+  let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
+  let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
+  let config_opt = config_opt ^ " " ^ !configure_flags_global in
+  let install_pre =
+    if as_root then "sudo " else if !have_perms || !godi then "" else
         "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
 
-    (* define exceptions to raise for errors in various steps *)
-    let config_fail = Failure ("Could not configure " ^ p.id)  in
-    let build_fail = Failure ("Could not build " ^ p.id) in
-(*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
-    let install_fail = Failure ("Could not install package " ^ p.id) in
+  (* define exceptions to raise for errors in various steps *)
+  let config_fail = Failure ("Could not configure " ^ p.id)  in
+  let build_fail = Failure ("Could not build " ^ p.id) in
+  (*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
+  let install_fail = Failure ("Could not install package " ^ p.id) in
 
-    (* Do the install *)
-    ( match buildtype with
-      | Oasis ->
-	run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
-	run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-        (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
-	run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
-      | Omake ->
-        run_or ~cmd:"omake" ~err:build_fail;
-        (* TODO: MAKE TEST *)
-        run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
-      | Make ->
-        if Sys.file_exists "configure" then
-          run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
-        run_or ~cmd:"make" ~err:build_fail;
-        (* TODO: MAKE TEST *)
-        run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
-    );
-    (* test whether installation was successful *)
-    if not (Dep.has_dep (p,None)) then (
-      print_endline ("Problem with installed package: " ^ p.id);
-      print_endline ("Installed package is not available to the system");
-      print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
-      print_endline ("and "^odb_bin^" is in your PATH");
-      exit 1;
-    );
-    print_endline ("Successfully installed " ^ p.id);
-    Dep.get_reqs p (* return the reqs *)
+  (* Do the install *)
+  ( match buildtype with
+    | Oasis ->
+      run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+      run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+      (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
+      run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+    | Omake ->
+      run_or ~cmd:"omake" ~err:build_fail;
+      (* TODO: MAKE TEST *)
+      run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
+    | Make ->
+      if Sys.file_exists "configure" then
+        run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
+      run_or ~cmd:"make" ~err:build_fail;
+      (* TODO: MAKE TEST *)
+      run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
+  );
+  (* test whether installation was successful *)
+  if not (Dep.has_dep (p,None)) then (
+    print_endline ("Problem with installed package: " ^ p.id);
+    print_endline ("Installed package is not available to the system");
+    print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
+    print_endline ("and "^odb_bin^" is in your PATH");
+    exit 1;
+  );
+  print_endline ("Successfully installed " ^ p.id);
+  Dep.get_reqs p (* return the reqs *)
 
-let download_and_install p =
+let setup_install_dir pid =
   (* Set up the directory to install into *)
-  let install_dir = "install-" ^ p.id in
+  let install_dir = "install-" ^ pid in
   if Sys.file_exists install_dir then
     Sys.command ("rm -rf " ^ install_dir) |> ignore;
   Unix.mkdir install_dir 0o700;
-
-  (* Extract our tarball in that directory *)
   Sys.chdir install_dir;
-  let tb = get_tarball p in
-  if tb = "" then [] else
-    let extract_cmd = extract_cmd tb in
-    run_or ~cmd:extract_cmd
-      ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+  () (* return unit *)
 
-    (* detect and enter directory created by tarball *)
-    let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-    let dir = match dirs with | [] -> "." | h::_ -> h in
-    PL.add ~p "dir" dir;
-    install_from_dir p
+let detect_dir () =
+  (* detect directory created by tarball extraction or git clone *)
+  let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
+  match dirs with | [] -> "." | h::_ -> h
+
+let extract_tarball p =
+  setup_install_dir p.id;
+  let tb = get_tarball p in
+  let extract_cmd = extract_cmd tb in
+  run_or ~cmd:extract_cmd
+    ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
+  PL.add ~p "dir" (detect_dir ())
+
+let clone_git p =
+  setup_install_dir p.id;
+  run_or ~cmd:("git clone " ^ (PL.get p "git"))
+    ~err:(Failure ("Could not clone git for " ^ p.id));
+  PL.add ~p "dir" (detect_dir ())
 
 let install_package p =
   (* uninstall forced libraries *)
@@ -363,16 +380,13 @@ let install_package p =
       Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
      );
 
-  let ret =
-    if PL.get ~p ~n:"tarball" <> "" then
-      download_and_install p
-    else if PL.get ~p ~n:"dir" <> "" then
-      install_from_dir p
-    else failwith ("No installation method available for: " ^ p.id)
-  in
-      (* return to build dir *)
-  Sys.chdir !build_dir;
-  ret
+  if PL.get ~p ~n:"tarball" <> "" then
+    extract_tarball p
+  else if PL.get ~p ~n:"git" <> "" then
+    clone_git p;
+
+  install_from_dir p
+  |> tap (fun _ -> Sys.chdir !build_dir) (* return to build dir *)
 
 (* install a package and all its deps *)
 let rec install_full ?(root=false) p =
