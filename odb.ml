@@ -99,12 +99,12 @@ module PL = struct
   let get_i ~p ~n =
     try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
+  let split_pair s = match Str.bounded_split (Str.regexp " *= *") s 2 with
+    | [k;v] -> (k,v) | [k] -> (k,"")
+    | _ -> failwith ("Bad line in alist: " ^ s)
   let of_string =
     Str.split (Str.regexp "\n")
-    |- List.filter (fun s -> String.contains s '=')
-    |- List.map (fun s -> match Str.bounded_split (Str.regexp " *= *") s 2 with
-        | [k;v] -> (k,v) | [k] -> (k,"")
-        | _ -> failwith ("Bad line in alist: " ^ s))
+    |- List.filter (fun s -> String.contains s '=') |- List.map split_pair
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl = try let old_v = List.assoc n pl in
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
@@ -133,7 +133,7 @@ let read_local_info () =
   if Sys.file_exists fn then
     let ic = open_in fn in
     try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
-        match Str.bounded_split (Str.regexp " +") (input_line ic) 4 with
+        match Str.split (Str.regexp " +") (input_line ic) with
           | ["dep"; id; "remote-tar-gz"; url] ->
             Hashtbl.add info_cache id ["tarball", url]
           | ["dep"; id; "local-dir"; dir] ->
@@ -142,6 +142,8 @@ let read_local_info () =
             Hashtbl.add info_cache id ["tarball", filename]
           | ["dep"; id; "git"; url] ->
             Hashtbl.add info_cache id ["git", url]
+	  | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
+	    Hashtbl.add info_cache id (List.map PL.split_pair tl)
           | _ -> ()
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
@@ -254,10 +256,11 @@ module Dep = struct
   let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
       |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
-  let of_oasis () = (* reads the _oasis file in the current directory *)
-    if not (Sys.file_exists "_oasis") then [] else
+  let of_oasis dir = (* reads the [dir]/_oasis file *)
+    let fn = Fn.concat dir "_oasis" in
+    if not (Sys.file_exists fn) then [] else
+      let ic = open_in fn in
       let deps = ref [] in
-      let ic = open_in "_oasis" in
       try while true do
 	  let line = input_line ic in
 	  match Str.bounded_split (Str.regexp_string ":") line 2 with
