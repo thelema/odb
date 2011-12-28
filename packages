@@ -39,6 +39,19 @@ bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.2.ta
 # Does not respect --prefix in configure, so installs executable in ~/bin
 unison tarball=http://www.seas.upenn.edu/~bcpierce/unison//download/releases/stable/unison-2.40.63.tar.gz is_program=true deps=lablgtk2
 
+
+easy-format git=https://github.com/mjambon/easy-format is_library=true
+# Biniou - like json but better
+## WARNING: requires root to install
+biniou tarball=http://martin.jambon.free.fr/biniou.tar.gz is_library=true install_as_root=true
+# atd - syntax for cross-language type definintions
+## WARNING: requires root to install
+atd git=git://github.com/MyLifeLabs/atd.git is_library=true deps=easy-format,menhir install_as_root=true
+
+# cfg - library for manipulating context free grammars
+cfg tarball=http://hg.ocaml.info/release/cfg/archive/release-1.7.5.tar.gz
+
+
 ############################
 ## TESTING PACKAGES BELOW ##
 ############################
@@ -64,3 +77,33 @@ mlcuddidl svn=svn://scm.gforge.inria.fr/svn/mlxxxidl/mlcuddidl/trunk/ deps=camli
 
 #fails to build - needs hand configuration
 #camlidl tarball=http://caml.inria.fr/pub/old_caml_site/distrib/bazar-ocaml/camlidl-1.05.tar.gz is_program=true
+
+# Unlimited size ancient heap for OCaml
+# fails to build - needs to configure mmalloc in subdir
+ancient git=git://git.annexia.org/git/ocaml-ancient.git is_library=true
+
+### annexlib -- NEED SOURCES
+
+atdgen git=https://github.com/MyLifeLabs/atdgen is_program=true deps=atd,menhir,easy-format,cppo,biniou,yojson
+
+#fails to build - assumes PREFIX environment variable set for install
+menhir tarball=http://pauillac.inria.fr/~fpottier/menhir/menhir-20111019.tar.gz
+
+# bisect - code coverage tool
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+bisect darcs=http://bisect.x9c.fr/
+
+# bolt - logging framework (log4o)
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+bolt darcs=http://bolt.x9c.fr/
+
+# cache - like memcached
+# dep ocamlnet doesn't auto-install
+cache tarball=http://oss.wink.com/cache/cache-1.0.tar.gz deps=netstring,netplex,pcre,omake
+
+
+# problem installing library
+caml2html tarball=http://martin.jambon.free.fr/caml2html-1.4.1.tar.gz is_program=true install_as_root=true
+
+# camlimages
+camlimages hg=https://bitbucket.org/camlspotter/camlimages deps=omake
