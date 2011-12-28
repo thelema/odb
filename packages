@@ -1,3 +1,29 @@
+## Local Packages database for odb
+## lines starting with # are comments
+## Other lines have format
+##   <package-name> <key1>=<value1> <key2>=<value2> ...
+## no whitespace is allowed except before each key
+
+## Important keys:
+## Package sources (at least one required)
+##   tarball - location of tarball, either local file or curl-able url
+##   dir     - local directory to install from
+##   git     - git repo to clone
+##   hg, darcs, svn - as git
+##   cvs, cvspath - CVSROOT and path within root to checkout (both needed)
+## Optional keys
+##   is_library - does this package install a findlib package. "true"/"false"
+##   is_program - does this package install an executable. "true"/"false"
+##   deps - what other packages this package depends on.  Comma separated
+
+## Alternate package syntax:
+##   dep <package-name> <src>
+## where <src> is one of the following:
+##   remote-tar-gz <URL>  (tarball=URL)
+##   local-dir <DIR>      (dir=DIR)
+##   local-tar-gz <FILE>  (tarball=FILE)
+##   git <URL>            (git=URL)
+
 #Local batteries repository
 batteries dir=/home/thelema/batteries is_library=true
 
