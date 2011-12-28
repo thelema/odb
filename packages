@@ -1,0 +1,5 @@
+#Local batteries repository
+batteries dir=/home/thelema/batteries is_library=true
+
+#SWFLIB CVS repo for haxe
+swflib cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/swflib
