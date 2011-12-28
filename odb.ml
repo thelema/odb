@@ -343,33 +343,26 @@ let install_from_dir p =
   print_endline ("Successfully installed " ^ p.id);
   Dep.get_reqs p (* return the reqs *)
 
-let setup_install_dir pid =
+let extract_wrap ~cmd act p =
   (* Set up the directory to install into *)
-  let install_dir = "install-" ^ pid in
+  let install_dir = "install-" ^ p.id in
   if Sys.file_exists install_dir then
     Sys.command ("rm -rf " ^ install_dir) |> ignore;
   Unix.mkdir install_dir 0o700;
   Sys.chdir install_dir;
-  () (* return unit *)
-
-let detect_dir () =
+  run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id));
   (* detect directory created by tarball extraction or git clone *)
   let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-  match dirs with | [] -> "." | h::_ -> h
+  PL.add ~p "dir" (match dirs with | [] -> "." | h::_ -> h)
 
 let extract_tarball p =
-  setup_install_dir p.id;
-  let tb = get_tarball p in
-  let extract_cmd = extract_cmd tb in
-  run_or ~cmd:extract_cmd
-    ~err:(Failure ("Could not extract tarball for " ^ p.id ^ "(" ^ tb ^ ")"));
-  PL.add ~p "dir" (detect_dir ())
-
+  extract_wrap ~cmd:(extract_cmd (get_tarball p)) "extract tarball" p
 let clone_git p =
-  setup_install_dir p.id;
-  run_or ~cmd:("git clone " ^ (PL.get p "git"))
-    ~err:(Failure ("Could not clone git for " ^ p.id));
-  PL.add ~p "dir" (detect_dir ())
+  extract_wrap ~cmd:("git clone " ^ PL.get p "git") "clone git" p
+let clone_svn p =
+  extract_wrap ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
+let clone_cvs p =
+  extract_wrap ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p; PL.add ~p "dir" (PL.get p "cvspath")
 
 let install_package p =
   (* uninstall forced libraries *)
@@ -383,10 +376,11 @@ let install_package p =
       Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
      );
 
-  if PL.get ~p ~n:"tarball" <> "" then
-    extract_tarball p
-  else if PL.get ~p ~n:"git" <> "" then
-    clone_git p;
+  if PL.get ~p ~n:"tarball" <> "" then extract_tarball p
+  else if PL.get ~p ~n:"git" <> "" then clone_git p
+  else if PL.get ~p ~n:"svn" <> "" then clone_svn p
+  else if PL.get ~p ~n:"cvs" <> "" then clone_cvs p
+  ;
 
   install_from_dir p
   |> tap (fun _ -> Sys.chdir !build_dir) (* return to build dir *)
