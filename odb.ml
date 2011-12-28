@@ -63,8 +63,8 @@ let cmd_line = Arg.align [
 
 let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
-  if !repository <> "stable" && !repository <> "testing" && !repository <> "unstable" then (print_endline "Error: Repository must be stable, testing or unstable."; exit 1);
   if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
+
   ()
 
 (* micro-http library *)
@@ -134,6 +134,7 @@ let read_local_info () =
     let ic = open_in fn in
     try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
         match Str.split (Str.regexp " +") (input_line ic) with
+	  | h::_ when h.[0] = '#' -> () (* ignore comments *)
           | ["dep"; id; "remote-tar-gz"; url] ->
             Hashtbl.add info_cache id ["tarball", url]
           | ["dep"; id; "local-dir"; dir] ->
@@ -362,7 +363,13 @@ let clone_git p =
 let clone_svn p =
   extract_wrap ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
 let clone_cvs p =
-  extract_wrap ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p; PL.add ~p "dir" (PL.get p "cvspath")
+  extract_wrap ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p;
+  PL.add ~p "dir" (PL.get p "cvspath") (* special dir for cvs *)
+let clone_hg p =
+  extract_wrap ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
+let clone_darcs p =
+  extract_wrap ~cmd:("darcs get " ^ PL.get p "darcs") "get darcs" p
+
 
 let install_package p =
   (* uninstall forced libraries *)
@@ -380,6 +387,8 @@ let install_package p =
   else if PL.get ~p ~n:"git" <> "" then clone_git p
   else if PL.get ~p ~n:"svn" <> "" then clone_svn p
   else if PL.get ~p ~n:"cvs" <> "" then clone_cvs p
+  else if PL.get ~p ~n:"hg" <> "" then clone_hg p
+  else if PL.get ~p ~n:"darcs" <> "" then clone_darcs p
   ;
 
   install_from_dir p
