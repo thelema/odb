@@ -6,6 +6,7 @@
 
 (* micro-stdlib *)
 module Fn = Filename
+let (</>) = Fn.concat
 open Printf
 let (|>) x f = f x
 let (|-) f g x = g (f x)
@@ -21,11 +22,11 @@ let webroots =
   Str.split (Str.regexp "|")
     (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
 (*let webroots = ["http://mutt.cse.msu.edu:8081/"] *)
-let default_base = Fn.concat (Sys.getenv "HOME") ".odb"
+let default_base = (Sys.getenv "HOME") </> ".odb"
 let odb_home = getenv_def ~def:default_base "ODB_INSTALL_DIR"
-let odb_lib = Fn.concat odb_home "lib"
-let odb_stubs = Fn.concat odb_home "/lib/stublibs"
-let odb_bin = Fn.concat odb_home "bin"
+let odb_lib = odb_home </> "lib"
+let odb_stubs = odb_home </> "/lib/stublibs"
+let odb_bin = odb_home </> "bin"
 let build_dir = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
 let cleanup = ref false
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
@@ -94,6 +95,7 @@ type pkg = {id: string; mutable props: (string * string) list}
 (* micro property-list library *)
 module PL = struct
   let get ~p ~n = try List.assoc n p.props with Not_found -> ""
+  let get_opt ~p ~n = try Some (List.assoc n p.props) with Not_found -> None
   let get_b ~p ~n =
     try List.assoc n p.props |> bool_of_string with Not_found -> false
   let get_i ~p ~n =
@@ -129,7 +131,7 @@ let get_info id =
       find_uri webroots
 
 let read_local_info () =
-  let fn = Fn.concat odb_home "packages" in
+  let fn = odb_home </> "packages" in
   if Sys.file_exists fn then
     let ic = open_in fn in
     try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
@@ -258,7 +260,7 @@ module Dep = struct
       |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
   let of_oasis dir = (* reads the [dir]/_oasis file *)
-    let fn = Fn.concat dir "_oasis" in
+    let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
       let ic = open_in fn in
       let deps = ref [] in
@@ -289,10 +291,7 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 type build_type = Oasis | Omake | Make
 
 (* Installing a package *)
-let install_from_dir p =
-  let dir = PL.get ~p ~n:"dir" in
-  if dir = "" then failwith ("No installation method available for: " ^ p.id);
-  Sys.chdir dir;
+let install_from_current_dir p =
   (* detect build type based on files in directory *)
   let buildtype =
     if Sys.file_exists "setup.ml" then Oasis
@@ -344,24 +343,36 @@ let install_from_dir p =
   print_endline ("Successfully installed " ^ p.id);
   Dep.get_reqs p (* return the reqs *)
 
-let extract_wrap make_source_tree p =
+(* detect directory created by tarball extraction or git clone *)
+let rec find_install_dir () =
+  match Sys.readdir "."|>Array.to_list|>List.filter Sys.is_directory with
+    | [] -> () | h::_ -> Sys.chdir h
+
+let make_install_dir pid =
   (* Set up the directory to install into *)
-  let install_dir = "install-" ^ p.id in
+  let install_dir = "install-" ^ pid in
   if Sys.file_exists install_dir then
     Sys.command ("rm -rf " ^ install_dir) |> ignore;
   Unix.mkdir install_dir 0o700;
-  Sys.chdir install_dir;
-  make_source_tree ();
-  (* detect directory created by tarball extraction or git clone *)
-  let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
-  PL.add ~p "dir" (match dirs with | [] -> "." | h::_ -> h)
-let clone ~cmd act p = extract_wrap (fun () -> run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id))) p
+  Sys.chdir install_dir
 
-let extract_tarball p = extract_wrap (fun () -> run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id))) p
+let clone ?branch ~cmd act p =
+  make_install_dir p.id;
+  run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id));
+  find_install_dir ()
+
+let extract_tarball p =
+  make_install_dir p.id;
+  run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id));
+  find_install_dir ()
+
 let clone_git p = clone ~cmd:("git clone " ^ PL.get p "git") "clone git" p
 let clone_svn p = clone ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
-let clone_cvs p = clone ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p;
-  PL.add ~p "dir" (PL.get p "cvspath") (* special dir for cvs *)
+let clone_cvs p =
+  make_install_dir p.id;
+  run_or ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath")
+    ~err:(Failure ("Could not checkout cvs for " ^ p.id));
+  Sys.chdir (PL.get p "cvspath") (* special dir for cvs *)
 let clone_hg p = clone ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
 let clone_darcs p = clone ~cmd:("darcs get " ^ PL.get p "darcs") "get darcs" p
 
@@ -379,14 +390,15 @@ let install_package p =
      );
 
   if PL.get ~p ~n:"tarball" <> "" then extract_tarball p
+  else if PL.get ~p ~n:"dir" <> "" then Sys.chdir (PL.get ~p ~n:"dir")
   else if PL.get ~p ~n:"git" <> "" then clone_git p
   else if PL.get ~p ~n:"svn" <> "" then clone_svn p
   else if PL.get ~p ~n:"cvs" <> "" then clone_cvs p
   else if PL.get ~p ~n:"hg" <> "" then clone_hg p
   else if PL.get ~p ~n:"darcs" <> "" then clone_darcs p
-  ;
+  else failwith ("No installation method available for: " ^ p.id);
 
-  install_from_dir p
+  install_from_current_dir p
   |> tap (fun _ -> Sys.chdir !build_dir) (* return to build dir *)
 
 (* install a package and all its deps *)
