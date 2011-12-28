@@ -25,16 +25,23 @@
 ##   local-tar-gz <FILE>  (tarball=FILE)
 ##   git <URL>            (git=URL)
 
+######################
 ## WORKING PACKAGES (Ubuntu/64)
+######################
 
 #Local batteries repository
 #batteries dir=/home/thelema/batteries is_library=true
 batteries git=git://github.com/ocaml-batteries-team/batteries-included.git is_library=true
 
-
 bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.2.tar.gz is_library=true dep=camlp4
 
-## TESTING PACKAGES BELOW
+# Unison file synchronizer.
+# Does not respect --prefix in configure, so installs executable in ~/bin
+unison tarball=http://www.seas.upenn.edu/~bcpierce/unison//download/releases/stable/unison-2.40.63.tar.gz is_program=true deps=lablgtk2
+
+############################
+## TESTING PACKAGES BELOW ##
+############################
 
 #SWFLIB CVS repo for haxe
 swflib cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/swflib
@@ -42,9 +49,18 @@ swflib cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/swflib
 #EXTLIB fork from haxe
 extlib-dev cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extlib-dev is_library=true
 
-#EXTC fork from haxe
+#EXTC from haxe
 extc cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extc
 
+# Fails to install via ocamlfind - installation is direct to `ocamlc -where`
 xml-light cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/xml-light
 
+# Fails to download from darcs - hash error
 argot darcs=http://argot.x9c.fr/
+
+# cudd library bindings
+# fails to build - needs hand configuration
+mlcuddidl svn=svn://scm.gforge.inria.fr/svn/mlxxxidl/mlcuddidl/trunk/ deps=camlidl
+
+#fails to build - needs hand configuration
+#camlidl tarball=http://caml.inria.fr/pub/old_caml_site/distrib/bazar-ocaml/camlidl-1.05.tar.gz is_program=true
