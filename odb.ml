@@ -344,31 +344,26 @@ let install_from_dir p =
   print_endline ("Successfully installed " ^ p.id);
   Dep.get_reqs p (* return the reqs *)
 
-let extract_wrap ~cmd act p =
+let extract_wrap make_source_tree p =
   (* Set up the directory to install into *)
   let install_dir = "install-" ^ p.id in
   if Sys.file_exists install_dir then
     Sys.command ("rm -rf " ^ install_dir) |> ignore;
   Unix.mkdir install_dir 0o700;
   Sys.chdir install_dir;
-  run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id));
+  make_source_tree ();
   (* detect directory created by tarball extraction or git clone *)
   let dirs = (Sys.readdir "." |> Array.to_list |> List.filter Sys.is_directory) in
   PL.add ~p "dir" (match dirs with | [] -> "." | h::_ -> h)
+let clone ~cmd act p = extract_wrap (fun () -> run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id))) p
 
-let extract_tarball p =
-  extract_wrap ~cmd:(extract_cmd (get_tarball p)) "extract tarball" p
-let clone_git p =
-  extract_wrap ~cmd:("git clone " ^ PL.get p "git") "clone git" p
-let clone_svn p =
-  extract_wrap ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
-let clone_cvs p =
-  extract_wrap ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p;
+let extract_tarball p = extract_wrap (fun () -> run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id))) p
+let clone_git p = clone ~cmd:("git clone " ^ PL.get p "git") "clone git" p
+let clone_svn p = clone ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
+let clone_cvs p = clone ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath") "checkout cvs" p;
   PL.add ~p "dir" (PL.get p "cvspath") (* special dir for cvs *)
-let clone_hg p =
-  extract_wrap ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
-let clone_darcs p =
-  extract_wrap ~cmd:("darcs get " ^ PL.get p "darcs") "get darcs" p
+let clone_hg p = clone ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
+let clone_darcs p = clone ~cmd:("darcs get " ^ PL.get p "darcs") "get darcs" p
 
 
 let install_package p =
