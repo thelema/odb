@@ -70,6 +70,9 @@ aifad tarball=http://hg.ocaml.info/release/aifad/archive/release-1.1.0.tar.gz de
 res tarball=http://hg.ocaml.info/release/res/archive/release-3.2.0.tar.gz
 
 pure-fun tarball=http://hg.ocaml.info/release/pure-fun/archive/release-1.0.8.tar.gz
+
+pomap tarball=http://hg.ocaml.info/release/pomap/archive/release-2.9.9.tar.gz
+
 ########################################
 ####### TESTING PACKAGES BELOW #########
 ########################################
