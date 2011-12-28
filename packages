@@ -25,8 +25,26 @@
 ##   local-tar-gz <FILE>  (tarball=FILE)
 ##   git <URL>            (git=URL)
 
+## WORKING PACKAGES (Ubuntu/64)
+
 #Local batteries repository
-batteries dir=/home/thelema/batteries is_library=true
+#batteries dir=/home/thelema/batteries is_library=true
+batteries git=git://github.com/ocaml-batteries-team/batteries-included.git is_library=true
+
+
+bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.2.tar.gz is_library=true dep=camlp4
+
+## TESTING PACKAGES BELOW
 
 #SWFLIB CVS repo for haxe
 swflib cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/swflib
+
+#EXTLIB fork from haxe
+extlib-dev cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extlib-dev is_library=true
+
+#EXTC fork from haxe
+extc cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extc
+
+xml-light cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/xml-light
+
+argot darcs=http://argot.x9c.fr/
