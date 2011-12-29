@@ -44,14 +44,18 @@ easy-format git=https://github.com/mjambon/easy-format is_library=true
 # Biniou - like json but better
 ## WARNING: requires root to install
 biniou tarball=http://martin.jambon.free.fr/biniou.tar.gz is_library=true install_as_root=true
+
 # atd - syntax for cross-language type definintions
 ## WARNING: requires root to install
 atd git=git://github.com/MyLifeLabs/atd.git is_library=true deps=easy-format,menhir install_as_root=true
 
+## WARNING: requires root to install
+cppo tarball=http://martin.jambon.free.fr/cppo-0.9.2.tar.gz is_program=true install_as_root=true
+
 # cfg - library for manipulating context free grammars
 cfg tarball=http://hg.ocaml.info/release/cfg/archive/release-1.7.5.tar.gz
 
-# gpr -
+# gpr - gaussian process regression
 # requires jane street core
 gpr tarball=http://hg.ocaml.info/release/gpr/archive/release-0.11.0.tar.gz deps=lacaml,core
 
@@ -67,12 +71,27 @@ sqlite3 tarball=http://hg.ocaml.info/release/ocaml-sqlite3/archive/release-1.6.1
 # does not install executable, but builds it properly
 aifad tarball=http://hg.ocaml.info/release/aifad/archive/release-1.1.0.tar.gz deps=res,pcre,cfg is_program=true
 
+# resizeable arrays
 res tarball=http://hg.ocaml.info/release/res/archive/release-3.2.0.tar.gz
 
 pure-fun tarball=http://hg.ocaml.info/release/pure-fun/archive/release-1.0.8.tar.gz
 
+#partially ordered maps
 pomap tarball=http://hg.ocaml.info/release/pomap/archive/release-2.9.9.tar.gz
 
+# binary installed: "cilly"
+# c intermediate language something something
+cil tarball=http://downloads.sourceforge.net/project/cil/cil/cil-1.4.0.tar.gz is_library=true
+
+# cryptgps
+cryptgps tarball=http://download.camlcity.org/download/cryptgps-0.2.1.tar.gz
+
+# dynamic types for ocaml (via syntax extension)
+dyntype git=git://github.com/mirage/dyntype.git
+
+expat tarball=http://mmzeeman.home.xs4all.nl/ocaml/ocaml-expat-0.9.1.tar.gz is_library=true
+
+inifiles tarball=http://homepage.mac.com/letaris/inifiles-1.2.tar.gz is_library=true
 ########################################
 ####### TESTING PACKAGES BELOW #########
 ########################################
@@ -120,6 +139,10 @@ bisect darcs=http://bisect.x9c.fr/
 # fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
 bolt darcs=http://bolt.x9c.fr/
 
+# kaputt - unit testing
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+kaputt darcs=http://kaputt.x9c.fr/
+
 # cache - like memcached
 # dep ocamlnet doesn't auto-install
 cache tarball=http://oss.wink.com/cache/cache-1.0.tar.gz deps=netstring,netplex,pcre,omake
@@ -130,3 +153,25 @@ caml2html tarball=http://martin.jambon.free.fr/caml2html-1.4.1.tar.gz is_program
 
 # camlimages
 camlimages hg=https://bitbucket.org/camlspotter/camlimages deps=omake
+
+# dypgen GLR parser generator
+# fails to install executable - assumes permission to /usr/bin
+dypgen tarball=http://dypgen.free.fr/dypgen-20111127-1.tar.bz2
+
+# depends on event.h, untested
+liboevent tarball=http://mmzeeman.home.xs4all.nl/ocaml/ocaml-event-0.6.0.tar.gz
+
+# fails to configure: --prefix not allowed
+facile tarball=http://www.recherche.enac.fr/log/facile/distrib/facile-1.1.tar.gz
+
+# fails to install: tries to install to /usr/bin
+frontc tarball=http://www.irit.fr/recherches/ARCHI/MARCH/frontc/Frontc-3.4.tgz is_program=true
+#hg=https://wwwsecu.irit.fr/hg/TRACES/frontc/trunk
+
+#hydro object-oriented RPC
+hydro tarball=http://oss.wink.com/hydro/hydro-0.7.1.tar.gz deps=equeue
+
+# also installs executable ydump
+yojson tarball=http://martin.jambon.free.fr/yojson-1.0.3.tar.gz deps=easy-format,biniou,cppo install_as_root=true is_library=true
+
+ulex tarball=http://www.cduce.org/download/ulex-1.1.tar.gz
