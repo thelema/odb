@@ -404,6 +404,7 @@ let install_package p =
   else if PL.get ~p ~n:"cvs" <> "" then clone_cvs p
   else if PL.get ~p ~n:"hg" <> "" then clone_hg p
   else if PL.get ~p ~n:"darcs" <> "" then clone_darcs p
+  else if PL.get ~p ~n:"deps" <> "" then () (* packages that are only deps are ok *)
   else failwith ("No installation method available for: " ^ p.id);
 
   install_from_current_dir p
