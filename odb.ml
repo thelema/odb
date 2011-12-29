@@ -463,15 +463,18 @@ let () =
       |> String.concat " "
     in
     let pkgs = Str.split (Str.regexp " +") pkgs in
-    match pkgs with
-    | [] ->
-        print_endline "No packages available"
+    (match pkgs with
+    | [] -> print_endline "No packages available"
     | hd :: tl ->
         (* Remove duplicate entries (inefficiently) *)
         let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
-        print_string "Available packages:";
+        print_string "Available packages from oasis:";
         List.iter (printf " %s") (List.rev pkgs);
-        print_newline ();
+        print_newline ()
+    );
+    print_string "Locally configured packages:";
+    Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
+    print_newline ()
   ) else ( (* install listed packages *)
     List.iter (to_pkg |- install_full ~root:true) !to_install;
     if !reqs <> [] then (
