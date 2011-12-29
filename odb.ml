@@ -14,6 +14,7 @@ let tap f x = f x; x
 let debug = ref false
 let dtap f x = if !debug then f x; x
 let (//) x y = if x = "" then y else x
+let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
 
@@ -118,20 +119,18 @@ let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (print
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
 let get_info id =
- try Hashtbl.find info_cache id
-    with Not_found ->
-      let rec find_uri = function
-        | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
-        | webroot :: tl ->
-            try deps_uri id webroot |> Http.get_contents |> PL.of_string
-	        |> tap (Hashtbl.add info_cache id)
-		|> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
-            with Failure _ -> find_uri tl
-      in
-      find_uri webroots
+  try Hashtbl.find info_cache id with Not_found ->
+    let rec find_uri = function
+      | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
+      | webroot :: tl ->
+        try deps_uri id webroot |> Http.get_contents |> PL.of_string
+      |> tap (Hashtbl.add info_cache id)
+      |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
+        with Failure _ -> find_uri tl
+    in
+    find_uri webroots
 
-let read_local_info () =
-  let fn = odb_home </> "packages" in
+let parse_package_file fn =
   if Sys.file_exists fn then
     let ic = open_in fn in
     try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
@@ -150,6 +149,15 @@ let read_local_info () =
           | _ -> ()
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
+
+let get_exe () =
+  Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
+  |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
+
+let read_local_info () =
+  parse_package_file (odb_home </> "packages");
+  parse_package_file (Fn.dirname (get_exe ()) </> "packages");
+  ()
 
 (* returns a local filename for the given tarball *)
 let get_tarball p =
