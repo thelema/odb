@@ -36,7 +36,7 @@ let force = ref false
 let force_all = ref false
 let repository = ref "stable"
 let auto_reinstall = ref false
-let have_perms = ref false
+let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
 let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
 let configure_flags = ref ""
@@ -439,10 +439,11 @@ let rec install_full ?(root=false) p =
       in
       install_get_reqs p
 
-
 (** MAIN **)
 let () =
   read_local_info ();
+  (* if we have permission to the install dir, set have_perms *)
+  (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
   (* initialize build directory if needed *)
   if !sudo then (
     build_dir := Fn.temp_dir_name
