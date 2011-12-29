@@ -92,6 +92,14 @@ dyntype git=git://github.com/mirage/dyntype.git
 expat tarball=http://mmzeeman.home.xs4all.nl/ocaml/ocaml-expat-0.9.1.tar.gz is_library=true
 
 inifiles tarball=http://homepage.mac.com/letaris/inifiles-1.2.tar.gz is_library=true
+
+# Unicode lexer
+ulex tarball=http://www.cduce.org/download/ulex-1.1.tar.gz
+
+# CSV file parser
+csv tarball=http://forge.ocamlcore.org/frs/download.php/613/csv-1.2.2.tar.gz
+
+
 ########################################
 ####### TESTING PACKAGES BELOW #########
 ########################################
@@ -174,4 +182,6 @@ hydro tarball=http://oss.wink.com/hydro/hydro-0.7.1.tar.gz deps=equeue
 # also installs executable ydump
 yojson tarball=http://martin.jambon.free.fr/yojson-1.0.3.tar.gz deps=easy-format,biniou,cppo install_as_root=true is_library=true
 
-ulex tarball=http://www.cduce.org/download/ulex-1.1.tar.gz
+# needs -lperl
+# fails to install - no ocamlfind, just installs to `ocamlc where`
+perl4caml git=git://git.annexia.org/git/perl4caml.git
