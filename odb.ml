@@ -442,12 +442,13 @@ let rec install_full ?(root=false) p =
 (** MAIN **)
 let () =
   read_local_info ();
+(* TEMP DISABLE
   (* if we have permission to the install dir, set have_perms *)
   (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
+ *)
   (* initialize build directory if needed *)
-  if !sudo then (
-    build_dir := Fn.temp_dir_name
-  ) else (
+  if !sudo then build_dir := Fn.temp_dir_name
+  else (
     mkdir odb_home;
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
