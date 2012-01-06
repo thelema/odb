@@ -5,7 +5,7 @@ Odb aims to be an 80% solution for automated ocaml package installation.
 ### Setup
 
 Packages will be installed by default to `~/.odb/lib`, so add this
-entry to your `/etc/findlib.conf` path or set the environment
+entry to your `/etc/findlib.conf` (or `/etc/ocamlfind.conf`) path or set the environment
 variable `OCAMLPATH=~/.odb/lib`.
 
 The latest version can be downloaded directly from github with the following command:
