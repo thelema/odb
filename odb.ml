@@ -479,7 +479,7 @@ let () = (* Command line arguments already parsed above *)
     Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
     print_newline ()
   ) else ( (* install listed packages *)
-    List.iter (to_pkg |- install_full ~root:true) !to_install;
+    List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
     if !reqs <> [] then (
       print_endline "Some packages depend on the just installed packages and should be re-installed.";
       print_endline "The command to do this is:";
