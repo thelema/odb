@@ -188,3 +188,7 @@ yojson tarball=http://martin.jambon.free.fr/yojson-1.0.3.tar.gz deps=easy-format
 # needs -lperl
 # fails to install - no ocamlfind, just installs to `ocamlc where`
 perl4caml git=git://git.annexia.org/git/perl4caml.git
+
+
+# Fails to compile: inconsistent assumptions over Camlp4_import?!
+pa-do tarball=http://forge.ocamlcore.org/frs/download.php/616/pa_do-0.8.13_OCaml3.12.tar.gz
