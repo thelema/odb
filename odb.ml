@@ -66,7 +66,6 @@ let cmd_line = Arg.align [
 let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
   if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
-
   ()
 
 (* micro-http library *)
@@ -168,7 +167,9 @@ let get_tarball p =
   else tb (* assume is a local file already *)
 
 (* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = {id = id; props = get_info id}
+let to_pkg id = (* TODO: AUTODETECT URLs AND PATHS *)
+  (* if id.[0] = '/' then { id =  *)
+  {id = id; props = get_info id}
 
 (* Version number handling *)
 module Ver = struct
@@ -314,7 +315,7 @@ let install_from_current_dir p =
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
   let install_pre =
     if as_root then "sudo " else if !have_perms || !godi then "" else
-        "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
+        "OCAMLFIND_DESTDIR="^odb_lib^" " in
 
   (* define exceptions to raise for errors in various steps *)
   let config_fail = Failure ("Could not configure " ^ p.id)  in
