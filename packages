@@ -16,6 +16,7 @@
 ##   is_program - does this package install an executable. "true"/"false"
 ##   deps - what other packages this package depends on.  Comma separated
 ##   install_as_root - forces a particular package to be installed as --sudo
+##   branch - for git sources, checks out a particular branch (TODO on others)
 
 ## Alternate package syntax:
 ##   dep <package-name> <src>
