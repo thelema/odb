@@ -375,7 +375,7 @@ let extract_tarball p =
   run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id));
   find_install_dir ()
 
-let clone_git p = clone ~cmd:("git clone " ^ PL.get p "git") "clone git" p
+let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
 let clone_svn p = clone ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
 let clone_cvs p =
   make_install_dir p.id;
@@ -383,7 +383,7 @@ let clone_cvs p =
     ~err:(Failure ("Could not checkout cvs for " ^ p.id));
   Sys.chdir (PL.get p "cvspath") (* special dir for cvs *)
 let clone_hg p = clone ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
-let clone_darcs p = clone ~cmd:("darcs get " ^ PL.get p "darcs") "get darcs" p
+let clone_darcs p = clone ~cmd:("darcs get --lazy " ^ PL.get p "darcs") "get darcs" p
 
 
 let install_package p =
@@ -441,7 +441,7 @@ let rec install_full ?(root=false) p =
       install_get_reqs p
 
 (** MAIN **)
-let () =
+let () = (* Command line arguments already parsed above *)
   read_local_info ();
 (* TEMP DISABLE
   (* if we have permission to the install dir, set have_perms *)
