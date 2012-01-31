@@ -299,6 +299,8 @@ let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
 type build_type = Oasis | Omake | Make
 
+let detect_exe exe = Sys.command ("which " ^ exe ^ " > /dev/null") = 0
+
 (* Installing a package *)
 let install_from_current_dir p =
   (* detect build type based on files in directory *)
@@ -331,15 +333,24 @@ let install_from_current_dir p =
       (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
       run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
     | Omake ->
+      if not (detect_exe "omake") then
+        failwith "OMake executable not found; cannot build";
       run_or ~cmd:"omake" ~err:build_fail;
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
       if Sys.file_exists "configure" then
         run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
-      run_or ~cmd:"make" ~err:build_fail;
+      (* Autodetect 'gnumake', 'gmake' and 'make' *)
+      let make =
+        if detect_exe "gnumake" then "gnumake" else
+          if detect_exe "gmake" then "gmake" else
+            if detect_exe "make" then "make" else
+              failwith "No gnumake/gmake/make executable found; cannot build"
+      in
+      run_or ~cmd:make ~err:build_fail;
       (* TODO: MAKE TEST *)
-      run_or ~cmd:(install_pre ^ "make install") ~err:install_fail;
+      run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
   );
   (* test whether installation was successful *)
   if not (Dep.has_dep (p,None)) then (
