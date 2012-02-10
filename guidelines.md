@@ -45,11 +45,13 @@ shown here will assume that `make` was detected.
 
 If a `configure` file is present in the package root directory, the
 following will be run:
+
 ```shell
 $ ./configure [--prefix ~/.odb]
 ```
 
 Then make is invoked as follows:
+
 ```shell
 $ make
 $ [sudo] [OCAMLFIND_DESTDIR=~/.odb/lib] make install
