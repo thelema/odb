@@ -1,5 +1,13 @@
 # Package guidelines
 
+## General Assumptions
+
+Packages fall into two categories: libraries and programs.
+
+Programs are assumed to provide an executable named the same as the package.
+
+Libraries install themselves using findlib.  The findlib package name is the same as the module name.
+
 
 ## Build system specifics:
 
