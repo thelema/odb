@@ -131,10 +131,11 @@ let get_info id =
 
 let parse_package_file fn =
   if Sys.file_exists fn then
-    let ic = open_in fn in
-    try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
+    let ic = open_in fn in let line = ref 0 in
+    try while true do incr line; (* TODO: dep foo ver x=y x2=y2...\n *)
         match Str.split (Str.regexp " +") (input_line ic) with
 	  | h::_ when h.[0] = '#' -> () (* ignore comments *)
+	  | [] -> ()                    (* and blank lines *)
           | ["dep"; id; "remote-tar-gz"; url] ->
             Hashtbl.add info_cache id ["tarball", url]
           | ["dep"; id; "local-dir"; dir] ->
@@ -145,7 +146,7 @@ let parse_package_file fn =
             Hashtbl.add info_cache id ["git", url]
 	  | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
 	    Hashtbl.add info_cache id (List.map PL.split_pair tl)
-          | _ -> ()
+          | _ -> printf "E: packages file %s line %d\n" fn !line
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
 
