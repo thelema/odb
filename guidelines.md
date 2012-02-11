@@ -12,8 +12,8 @@ findlib name that's the same as their package name.  For example,
 `batteries`.  Programs are expected to install (somewhere in the PATH)
 an executable named the same as their package name.  For example,
 `menhir` installs an executable `menhir`.  As long as one of these
-conditions is satisfied, odb will be able to detect the installation
-of your package.  (TODO: improve?)
+conditions is satisfied, `odb` will be able to detect the installation
+of your package.
 
 Programs that are both should do both.  For example, `oasis` installs
 a findlib package named `oasis` and installs an executable `oasis`.
@@ -39,7 +39,10 @@ release tarball.  If needed, `odb` can be extended with pre-configure
 actions for VCS builds, but has no support for generating `configure`
 or `setup.ml` at the moment.
 
-## Build system specifics:
+## Build systems
+
+It is assumed that native and bytecode compilation will be done when
+possible, and only bytecode if native compilation is not available.
 
 ### Oasis
 
