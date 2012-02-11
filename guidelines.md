@@ -2,11 +2,19 @@
 
 ## General Assumptions
 
-Packages fall into two categories: libraries and programs.
+ODB uses very simple heuristics to determine whether a package is
+installed.  Packages can be libraries or programs (or both).
+Libraries are expected to install themselves using findlib using a
+findlib name that's the same as their package name.  For example,
+`batteries` installs itself using findlib with the package name
+`batteries`.  Programs are expected to install (somewhere in the PATH)
+an executable named the same as their package name.  For example,
+`menhir` installs an executable `menhir`.
 
-Programs are assumed to provide an executable named the same as the package.
-
-Libraries install themselves using findlib.  The findlib package name is the same as the module name.
+Programs that are both should do both.  For example, `oasis` installs
+a findlib package named `oasis` and installs an executable `oasis`.
+Programs that are not tagged as either should do one or the other (and
+should then be properly tagged so detection is more accurate).
 
 
 ## Build system specifics:
