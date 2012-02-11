@@ -11,7 +11,9 @@ findlib name that's the same as their package name.  For example,
 `batteries` installs itself using findlib with the package name
 `batteries`.  Programs are expected to install (somewhere in the PATH)
 an executable named the same as their package name.  For example,
-`menhir` installs an executable `menhir`.
+`menhir` installs an executable `menhir`.  As long as one of these
+conditions is satisfied, odb will be able to detect the installation
+of your package.  (TODO: improve?)
 
 Programs that are both should do both.  For example, `oasis` installs
 a findlib package named `oasis` and installs an executable `oasis`.
@@ -23,11 +25,12 @@ should then be properly tagged so detection is more accurate).
 When a package is extracted from its tarball, it is expected that
 either the tarball contains a single toplevel directory, inside which
 is the build infrastructure (make/oasis/omake) or that the tarball
-contains the contents of this toplevel directory.  No assumptions are
-made on the name of this toplevel directory; whatever it's called, `odb`
-will detect it and use it for building.  If there are multiple
-toplevel directories in the tarball, batteries will guess one and try
-to install, but this is not recommended.
+contains the contents of this toplevel directory (this is strongly
+discouraged).  No assumptions are made on the name of this toplevel
+directory; whatever it's called, `odb` will detect it and use it for
+building.  If there are multiple toplevel directories in the tarball,
+batteries will guess one and try to install, but this is not
+recommended.
 
 ### VCS structure
 
