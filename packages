@@ -193,3 +193,5 @@ perl4caml git=git://git.annexia.org/git/perl4caml.git
 
 # Fails to compile: inconsistent assumptions over Camlp4_import?!
 pa-do tarball=http://forge.ocamlcore.org/frs/download.php/616/pa_do-0.8.13_OCaml3.12.tar.gz
+
+deriving git=git://repo.or.cz/deriving.git
