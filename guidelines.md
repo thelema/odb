@@ -29,7 +29,7 @@ contains the contents of this toplevel directory (this is strongly
 discouraged).  No assumptions are made on the name of this toplevel
 directory; whatever it's called, `odb` will detect it and use it for
 building.  If there are multiple toplevel directories in the tarball,
-batteries will guess one and try to install, but this is not
+`odb` will guess one and try to install, but this is not
 recommended.
 
 ### VCS structure
