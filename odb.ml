@@ -146,7 +146,7 @@ let parse_package_file fn =
             Hashtbl.add info_cache id ["git", url]
 	  | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
 	    Hashtbl.add info_cache id (List.map PL.split_pair tl)
-          | _ -> printf "E: packages file %s line %d is invalid\n" fn !line
+          | _ -> printf "W: packages file %s line %d is invalid\n" fn !line
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
 
