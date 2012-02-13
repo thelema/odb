@@ -194,4 +194,20 @@ perl4caml git=git://git.annexia.org/git/perl4caml.git
 # Fails to compile: inconsistent assumptions over Camlp4_import?!
 pa-do tarball=http://forge.ocamlcore.org/frs/download.php/616/pa_do-0.8.13_OCaml3.12.tar.gz
 
+#Error: Files pa_deriving.cmxa and /usr/local/lib/ocaml/camlp4/camlp4lib.cmxa
+#       make inconsistent assumptions over interface Camlp4_import
 deriving git=git://repo.or.cz/deriving.git
+
+
+# * Doesn't support --prefix on configure; expects LIBDIR=foo and
+#   --bindir=foo for library and executable installation,
+# * Overrides ocamlfind destdir using configured value for library
+#   installation, executables mlpost,mlpost_dot,[mlpost_lablgtk]
+
+mlpost tarball=http://mlpost.lri.fr/download/mlpost-0.8.1.tar.gz
+#deps=lablgtk2,bitstring,cairo # cairo dep not available
+
+cairo tarball=http://cgit.freedesktop.org/cairo-ocaml/snapshot/cairo-ocaml-1.2.0.tar.gz deps=lablgtk2
+
+#
+melt-build darcs=http://forge.ocamlcore.org/anonscm/darcs/melt/melt deps=mlpost
