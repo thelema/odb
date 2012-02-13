@@ -5,20 +5,32 @@
 ### Installed package detection
 
 `odb` uses very simple heuristics to determine whether a package is
-installed.  Packages can be libraries or programs (or both).
-Libraries are expected to install themselves using findlib using a
-findlib name that's the same as their package name.  For example,
-`batteries` installs itself using findlib with the package name
-`batteries`.  Programs are expected to install (somewhere in the PATH)
-an executable named the same as their package name.  For example,
-`menhir` installs an executable `menhir`.  As long as one of these
-conditions is satisfied, `odb` will be able to detect the installation
-of your package.
+installed.
 
-Programs that are both should do both.  For example, `oasis` installs
-a findlib package named `oasis` and installs an executable `oasis`.
-Programs that are not tagged as either should do one or the other (and
-should then be properly tagged so detection is more accurate).
+An `odb` package `foo` that's a library is considered installed if
+findlib knows about a library `foo`.  For example, `batteries`
+installs itself using findlib with the package name `batteries`.
+`odb` knows about this by the `is_library=true` setting in that
+package's metadata.
+
+Programs are expected to install (somewhere in the PATH) an executable
+named the same as their package name.  For example, `menhir` installs
+an executable `menhir`.  `odb` knows about this by the
+`is_executable=true` setting in package metadata, and uses `where` to
+detect this executable.
+
+As long as one of these conditions is satisfied, `odb` will be able to
+detect the installation of your package.  Programs that are both
+should do both (but will work fine if either .  For example, `oasis`
+installs a findlib package named `oasis` and installs an executable
+`oasis`.
+
+Programs that do not indicate in their metadata whether they are a
+library or an executable will be detected as installed if either a
+library or executable is found with their name.  This can lead to
+mis-identification, for example, for the ocaml library `zip`, it is
+important that the presence of the executable `zip` does not cause odb
+to think it's already installed.
 
 ### Tarball structure
 
