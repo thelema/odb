@@ -16,21 +16,25 @@ package's metadata.
 Programs are expected to install (somewhere in the PATH) an executable
 named the same as their package name.  For example, `menhir` installs
 an executable `menhir`.  `odb` knows about this by the
-`is_executable=true` setting in package metadata, and uses `where` to
+`is_program=true` setting in package metadata, and uses `where` to
 detect this executable.
 
 As long as one of these conditions is satisfied, `odb` will be able to
 detect the installation of your package.  Programs that are both
-should do both (but will work fine if either .  For example, `oasis`
-installs a findlib package named `oasis` and installs an executable
-`oasis`.
+libraries and executables may wish to be marked as both library and
+executable, so that if either is missing, `odb` will reinstall the
+package.  This is not required, as one or the other may be more
+reliably detected. For example, `oasis` installs a findlib package
+named `oasis` and installs an executable `oasis`, and is marked as
+both `is_library=true` and `is_program=true`.
 
 Programs that do not indicate in their metadata whether they are a
-library or an executable will be detected as installed if either a
-library or executable is found with their name.  This can lead to
+library or a program will be detected as installed if either a library
+or executable is found with their name.  This can lead to
 mis-identification, for example, for the ocaml library `zip`, it is
-important that the presence of the executable `zip` does not cause odb
-to think it's already installed.
+important that the presence of the executable `zip` does not cause
+`odb` to determine the package is already installed.  Thus it is
+recommended to give `odb` this information.
 
 ### Tarball structure
 
