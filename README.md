@@ -44,7 +44,7 @@ For a package that's available as a tarball from a http source,
 These packages will override any packages of the same name avaiable at oasis-db.
 
 ### Requirements
-* [OCaml][] >= 3.11
+* [OCaml][] >= 3.12
 * [Findlib][] >= 1.2.5
 * [curl][]
 
