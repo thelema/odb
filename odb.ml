@@ -42,7 +42,7 @@ let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found ->
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
-
+let have_tarball = ref false
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
@@ -51,6 +51,7 @@ let cmd_line = Arg.align [
   "--sudo", Arg.Set sudo, " Switch to root for installs";
   "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
   "--no-godi", Arg.Clear godi, " Disable use of auto-detected GODI paths";
+  "--have-tarball", Arg.Set have_tarball, " Don't fetch and extract tarball";
   "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   "--configure-flags-all", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
@@ -383,8 +384,15 @@ let clone ?branch ~cmd act p =
   find_install_dir ()
 
 let extract_tarball p =
-  make_install_dir p.id;
-  run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id));
+  if not !have_tarball then (
+    make_install_dir p.id;
+    run_or
+      ~cmd:(extract_cmd (get_tarball p)) 
+      ~err:(Failure ("Could not extract tarball for " ^ p.id))
+  ) else (
+    let install_dir = "install-" ^ p.id in
+    Sys.chdir install_dir
+  );
   find_install_dir ()
 
 let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
