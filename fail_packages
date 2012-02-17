@@ -1,0 +1,117 @@
+#################################
+##### WALL OF SHAME BELOW #######
+#################################
+##  THESE PACKAGES DON'T WORK  ##
+## SEND THEIR AUTHORS PATCHES! ##
+#################################
+## when they work, move to packages file
+
+#SWFLIB CVS repo for haxe
+swflib cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/swflib
+
+#EXTLIB fork from haxe
+extlib-dev cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extlib-dev is_library=true
+
+#EXTC from haxe
+extc cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/extc
+
+# Fails to install via ocamlfind - installation is direct to `ocamlc -where`
+xml-light cvs=:pserver:anonymous@cvs.motion-twin.com:/cvsroot cvspath=ocaml/xml-light
+
+# Fails to download from darcs - hash error
+argot darcs=http://argot.x9c.fr/
+
+# cudd library bindings
+# fails to build - needs hand configuration
+mlcuddidl svn=svn://scm.gforge.inria.fr/svn/mlxxxidl/mlcuddidl/trunk/ deps=camlidl
+
+#fails to build - needs hand configuration
+#camlidl tarball=http://caml.inria.fr/pub/old_caml_site/distrib/bazar-ocaml/camlidl-1.05.tar.gz is_program=true
+
+# Unlimited size ancient heap for OCaml
+# fails to build - needs to configure mmalloc in subdir
+ancient git=git://git.annexia.org/git/ocaml-ancient.git is_library=true
+
+### annexlib -- NEED SOURCES
+
+atdgen git=https://github.com/MyLifeLabs/atdgen is_program=true deps=atd,menhir,easy-format,cppo,biniou,yojson
+
+#fails to build - assumes PREFIX environment variable set for install
+menhir tarball=http://pauillac.inria.fr/~fpottier/menhir/menhir-20111019.tar.gz
+
+# bisect - code coverage tool
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+bisect darcs=http://bisect.x9c.fr/
+
+# bolt - logging framework (log4o)
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+bolt darcs=http://bolt.x9c.fr/
+
+# kaputt - unit testing
+# fails to build - needs arguments to configure -ocamlprefix, -ocamlfind
+kaputt darcs=http://kaputt.x9c.fr/
+
+# cache - like memcached
+# dep ocamlnet doesn't auto-install
+cache tarball=http://oss.wink.com/cache/cache-1.0.tar.gz deps=netstring,netplex,pcre,omake
+
+
+# problem installing library
+caml2html tarball=http://martin.jambon.free.fr/caml2html-1.4.1.tar.gz is_program=true install_as_root=true
+
+# camlimages
+camlimages hg=https://bitbucket.org/camlspotter/camlimages deps=omake
+
+# dypgen GLR parser generator
+# fails to install executable - assumes permission to /usr/bin
+dypgen tarball=http://dypgen.free.fr/dypgen-20111127-1.tar.bz2
+
+# depends on event.h, untested
+liboevent tarball=http://mmzeeman.home.xs4all.nl/ocaml/ocaml-event-0.6.0.tar.gz
+
+# fails to configure: --prefix not allowed
+facile tarball=http://www.recherche.enac.fr/log/facile/distrib/facile-1.1.tar.gz
+
+# fails to install: tries to install to /usr/bin
+frontc tarball=http://www.irit.fr/recherches/ARCHI/MARCH/frontc/Frontc-3.4.tgz is_program=true
+#hg=https://wwwsecu.irit.fr/hg/TRACES/frontc/trunk
+
+#hydro object-oriented RPC
+hydro tarball=http://oss.wink.com/hydro/hydro-0.7.1.tar.gz deps=equeue
+
+# also installs executable ydump
+yojson tarball=http://martin.jambon.free.fr/yojson-1.0.3.tar.gz deps=easy-format,biniou,cppo install_as_root=true is_library=true
+
+# needs -lperl
+# fails to install - no ocamlfind, just installs to `ocamlc where`
+perl4caml git=git://git.annexia.org/git/perl4caml.git
+
+
+# Fails to compile: inconsistent assumptions over Camlp4_import?!
+pa-do tarball=http://forge.ocamlcore.org/frs/download.php/616/pa_do-0.8.13_OCaml3.12.tar.gz
+
+#Error: Files pa_deriving.cmxa and /usr/local/lib/ocaml/camlp4/camlp4lib.cmxa
+#       make inconsistent assumptions over interface Camlp4_import
+deriving git=git://repo.or.cz/deriving.git
+
+
+# * Doesn't support --prefix on configure; expects LIBDIR=foo and
+#   --bindir=foo for library and executable installation,
+# * Overrides ocamlfind destdir using configured value for library
+#   installation, executables mlpost,mlpost_dot,[mlpost_lablgtk]
+mlpost tarball=http://mlpost.lri.fr/download/mlpost-0.8.1.tar.gz
+#deps=lablgtk2,bitstring,cairo # cairo dep not available
+
+cairo tarball=http://cgit.freedesktop.org/cairo-ocaml/snapshot/cairo-ocaml-1.2.0.tar.gz deps=lablgtk2
+
+# has three install paths for ./configure: -bin, -lib and -man
+melt-build darcs=http://forge.ocamlcore.org/anonscm/darcs/melt/melt deps=mlpost
+
+#fails to install - no install target for make
+interval tarball=http://www.alliot.fr/code/interval.tgz
+
+# fails to install, tries to install jsoncat to /usr/local/bin
+json-wheel tarball=http://martin.jambon.free.fr/json-wheel-1.0.6.tar.gz is_library=true is_program=true
+
+# fails to install, deps failure
+gapi-ocaml tarball=http://forge.ocamlcore.org/frs/download.php/787/gapi-ocaml-0.1.tar.gz deps=netclient,cryptokit,json-wheel,xmlm
