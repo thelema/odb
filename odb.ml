@@ -72,9 +72,17 @@ let () =
 module Http = struct
   let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
     if !debug then printf "Getting URI: %s\n%!" uri;
-    let s = if silent then " -s" else "" in
-    if Sys.command ("curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s) <> 0 then
-      failwith ("Curl failed to get " ^ uri);
+    let dl_cmd =
+      if Sys.command ("command -v curl > /dev/null") = 0 then
+        let s = if silent then " -s" else "" in
+        "curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s
+      else if Sys.command ("command -v wget > /dev/null") = 0 then
+        let s = if silent then " -q" else "" in
+        "wget --no-check-certificate " ^ uri ^ " -O " ^ fn ^ s
+      else failwith "neither curl nor wget was found, cannot download"
+    in
+    if Sys.command dl_cmd <> 0 then
+      failwith ("failed to get " ^ uri);
     fn
 
   let get_contents uri =
