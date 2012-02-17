@@ -70,21 +70,21 @@ let () =
 
 (* micro-http library *)
 module Http = struct
+  let dl_cmd =
+    if Sys.command ("which curl > /dev/null") = 0 then
+      (fun ~silent uri fn -> let s = if silent then " -s" else "" in
+      "curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s)
+    else if Sys.command ("which wget > /dev/null") = 0 then
+      (fun ~silent uri fn -> let s = if silent then " -q" else "" in
+      "wget --no-check-certificate " ^ uri ^ " -O " ^ fn ^ s)
+    else
+      (fun ~silent uri fn ->
+        failwith "neither curl nor wget was found, cannot download")
   let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
     if !debug then printf "Getting URI: %s\n%!" uri;
-    let dl_cmd =
-      if Sys.command ("command -v curl > /dev/null") = 0 then
-        let s = if silent then " -s" else "" in
-        "curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s
-      else if Sys.command ("command -v wget > /dev/null") = 0 then
-        let s = if silent then " -q" else "" in
-        "wget --no-check-certificate " ^ uri ^ " -O " ^ fn ^ s
-      else failwith "neither curl nor wget was found, cannot download"
-    in
-    if Sys.command dl_cmd <> 0 then
+    if Sys.command (dl_cmd ~silent uri fn) <> 0 then
       failwith ("failed to get " ^ uri);
     fn
-
   let get_contents uri =
     let fn = Fn.temp_file "odb" ".info" in
     ignore(get_fn uri ~fn ());
