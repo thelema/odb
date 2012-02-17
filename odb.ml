@@ -1,4 +1,5 @@
 #!/usr/bin/env ocaml
+(* Permission is granted to use and modify this program under WTFPL *)
 #use "topfind";;
 #require "str";;
 #require "unix";;
