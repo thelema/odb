@@ -17,6 +17,12 @@ let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
+let indir d f = let l=Sys.getcwd () in printf "indir %s -> %s\n%!" l d; Sys.chdir d; let r=f() in Sys.chdir l; printf "outdir %s -> %s\n%!" d l; r
+let detect_exe exe = Sys.command ("which " ^ exe ^ " > /dev/null") = 0
+let get_exe () = (* returns the full path and name of the current program *)
+  Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
+  |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
+let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -38,6 +44,7 @@ let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
+let get_only = ref false
 let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
 let configure_flags = ref ""
 let configure_flags_global = ref ""
@@ -61,6 +68,7 @@ let cmd_line = Arg.align [
   "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
   "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
+  "--get", Arg.Set get_only, " Only download and extract packages; don't install"
 ]
 
 let () =
@@ -71,15 +79,14 @@ let () =
 (* micro-http library *)
 module Http = struct
   let dl_cmd =
-    if Sys.command ("which curl > /dev/null") = 0 then
-      (fun ~silent uri fn -> let s = if silent then " -s" else "" in
+    if detect_exe "curl" then (fun ~silent uri fn ->
+      let s = if silent then " -s" else "" in
       "curl -f -k -L --url " ^ uri ^ " -o " ^ fn ^ s)
-    else if Sys.command ("which wget > /dev/null") = 0 then
-      (fun ~silent uri fn -> let s = if silent then " -q" else "" in
+    else if detect_exe "wget" then (fun ~silent uri fn ->
+      let s = if silent then " -q" else "" in
       "wget --no-check-certificate " ^ uri ^ " -O " ^ fn ^ s)
-    else
-      (fun ~silent uri fn ->
-        failwith "neither curl nor wget was found, cannot download")
+    else (fun ~silent:_ _uri _fn ->
+      failwith "neither curl nor wget was found, cannot download")
   let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
     if !debug then printf "Getting URI: %s\n%!" uri;
     if Sys.command (dl_cmd ~silent uri fn) <> 0 then
@@ -118,6 +125,7 @@ module PL = struct
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl = try let old_v = List.assoc n pl in
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
+  let has_key ~p k0 = List.mem_assoc k0 p.props
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
@@ -125,13 +133,14 @@ let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (print
 
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
-let get_info id =
+let get_info id = (* gets a package's info from the repo *)
   try Hashtbl.find info_cache id with Not_found ->
     let rec find_uri = function
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
       |> tap (Hashtbl.add info_cache id)
+      (* hack the tarball location so it's prefixed by the server address *)
       |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
         with Failure _ -> find_uri tl
     in
@@ -157,15 +166,6 @@ let parse_package_file fn =
           | _ -> printf "W: packages file %s line %d is invalid\n" fn !line
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
-
-let get_exe () =
-  Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
-  |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
-
-let read_local_info () =
-  parse_package_file (odb_home </> "packages");
-  parse_package_file (Fn.dirname (get_exe ()) </> "packages");
-  ()
 
 (* returns a local filename for the given tarball *)
 let get_tarball p =
@@ -292,26 +292,19 @@ module Dep = struct
       with End_of_file -> close_in ic; !deps
 end
 
-let extract_cmd fn =
+let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
   let suff = Fn.check_suffix fn in
-  if suff ".tar.gz" || suff ".tgz" then
-    "tar -zxvf " ^ fn
-  else if suff ".tar.bz2" || suff ".tbz" then
-    "tar -jxvf " ^ fn
-  else if suff ".tar.xz" || suff ".txz" then
-    "tar -Jxvf " ^ fn
-  else if suff ".zip" then
-    "unzip " ^ fn
-  else failwith "Don't know how to extract " ^ fn
-
-let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
+  if suff ".tar.gz" || suff ".tgz" then       "tar -zxvf " ^ fn
+  else if suff ".tar.bz2" || suff ".tbz" then "tar -jxvf " ^ fn
+  else if suff ".tar.xz" || suff ".txz" then  "tar -Jxvf " ^ fn
+  else if suff ".zip" then                    "unzip " ^ fn
+  else failwith ("Don't know how to extract " ^ fn)
 
 type build_type = Oasis | Omake | Make
 
-let detect_exe exe = Sys.command ("which " ^ exe ^ " > /dev/null") = 0
-
 (* Installing a package *)
 let install_from_current_dir p =
+  if !debug then printf "Installing %s from %s" p.id (Sys.getcwd ());
   (* detect build type based on files in directory *)
   let buildtype =
     if Sys.file_exists "setup.ml" then Oasis
@@ -373,63 +366,69 @@ let install_from_current_dir p =
   Dep.get_reqs p (* return the reqs *)
 
 (* detect directory created by tarball extraction or git clone *)
-let rec find_install_dir () =
-  match Sys.readdir "."|>Array.to_list|>List.filter Sys.is_directory with
-    | [] -> () | h::_ -> Sys.chdir h
+let find_install_dir dir =
+  let is_dir fn = Sys.is_directory (dir </> fn) in
+  try dir </> (Sys.readdir dir |> Array.to_list |> List.find is_dir)
+  with Not_found -> dir
 
 let make_install_dir pid =
   (* Set up the directory to install into *)
-  let install_dir = "install-" ^ pid in
+  let install_dir = !build_dir </> ("install-" ^ pid) in
   if Sys.file_exists install_dir then
     Sys.command ("rm -rf " ^ install_dir) |> ignore;
   Unix.mkdir install_dir 0o700;
-  Sys.chdir install_dir
+  install_dir
 
-let clone ?branch ~cmd act p =
-  make_install_dir p.id;
-  run_or ~cmd ~err:(Failure ("Could not " ^ act ^ " for " ^ p.id));
-  find_install_dir ()
+let clone ~cmd act p =
+  let idir = make_install_dir p.id in
+  let err = Failure ("Could not " ^ act ^ " for " ^ p.id) in
+  indir idir (fun () -> run_or ~cmd ~err);
+  find_install_dir idir
 
 let extract_tarball p =
-  make_install_dir p.id;
-  run_or ~cmd:(extract_cmd (get_tarball p)) ~err:(Failure ("Could not extract tarball for " ^ p.id));
-  find_install_dir ()
+  let idir = make_install_dir p.id in
+  let err = Failure ("Could not extract tarball for " ^ p.id) in
+  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball p)) ~err);
+  if !debug then printf "Extracted tarball for %s into %s\n%!" p.id idir;
+  find_install_dir idir
 
 let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
 let clone_svn p = clone ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
 let clone_cvs p =
-  make_install_dir p.id;
+  let idir = make_install_dir p.id in
   run_or ~cmd:("cvs -z3 -d" ^ PL.get p "cvs" ^ " co " ^ PL.get p "cvspath")
     ~err:(Failure ("Could not checkout cvs for " ^ p.id));
-  Sys.chdir (PL.get p "cvspath") (* special dir for cvs *)
+  idir </> (PL.get p "cvspath") (* special dir for cvs *)
 let clone_hg p = clone ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
 let clone_darcs p = clone ~cmd:("darcs get --lazy " ^ PL.get p "darcs") "get darcs" p
 
+(* returns the directory that the package was extracted to *)
+let get_package p =
+  if PL.has_key ~p "tarball" then extract_tarball p
+  else if PL.has_key ~p "dir" then (PL.get ~p ~n:"dir")
+  else if PL.has_key ~p "git" then clone_git p
+  else if PL.has_key ~p "svn" then clone_svn p
+  else if PL.has_key ~p "cvs" then clone_cvs p
+  else if PL.has_key ~p "hg"  then clone_hg p
+  else if PL.has_key ~p "darcs" then clone_darcs p
+  else if PL.has_key ~p "deps" then "." (* packages that are only deps are ok *)
+  else failwith ("No download method available for: " ^ p.id)
+
+let get_package p = get_package p |> tap (printf "package downloaded to %s\n%!")
+
+let uninstall p =
+  let as_root = PL.get_b p "install_as_root" || !sudo in
+  let install_pre =
+    if as_root then "sudo " else if !have_perms || !godi then "" else
+        "OCAMLFIND_DESTDIR="^odb_lib^" " in
+  print_endline ("Uninstalling forced library " ^ p.id);
+  Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
 let install_package p =
   (* uninstall forced libraries *)
-  if (Dep.get_ver p) <> None &&
-     (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then (
-      let as_root = PL.get_b p "install_as_root" || !sudo in
-      let install_pre =
-        if as_root then "sudo " else if !have_perms || !godi then "" else
-            "OCAMLFIND_LDCONF=ignore OCAMLFIND_DESTDIR="^odb_lib^" " in
-      print_endline ("Uninstalling forced library " ^ p.id);
-      Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore;
-     );
-
-  if PL.get ~p ~n:"tarball" <> "" then extract_tarball p
-  else if PL.get ~p ~n:"dir" <> "" then Sys.chdir (PL.get ~p ~n:"dir")
-  else if PL.get ~p ~n:"git" <> "" then clone_git p
-  else if PL.get ~p ~n:"svn" <> "" then clone_svn p
-  else if PL.get ~p ~n:"cvs" <> "" then clone_cvs p
-  else if PL.get ~p ~n:"hg" <> "" then clone_hg p
-  else if PL.get ~p ~n:"darcs" <> "" then clone_darcs p
-  else if PL.get ~p ~n:"deps" <> "" then () (* packages that are only deps are ok *)
-  else failwith ("No installation method available for: " ^ p.id);
-
-  install_from_current_dir p
-  |> tap (fun _ -> Sys.chdir !build_dir) (* return to build dir *)
+  if (Dep.get_ver p) <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then
+    uninstall p;
+  indir (get_package p) (fun () -> install_from_current_dir p)
 
 (* install a package and all its deps *)
 let rec install_full ?(root=false) p =
@@ -452,8 +451,8 @@ let rec install_full ?(root=false) p =
         let reqs_imm = install_package p in
         if !auto_reinstall then
           List.iter
-            (fun p -> try to_pkg p |> install_get_reqs with _ ->
-              reqs := p :: !reqs) (* if install of req fails, print package id *)
+            (fun pid -> try to_pkg pid |> install_get_reqs with _ ->
+              reqs := pid :: !reqs) (* if install of req fails, print pid *)
             reqs_imm
         else
           reqs := reqs_imm @ !reqs; (* unreinstalled reqs *)
@@ -462,8 +461,9 @@ let rec install_full ?(root=false) p =
 
 (** MAIN **)
 let () = (* Command line arguments already parsed above *)
-  read_local_info ();
-(* TEMP DISABLE
+  parse_package_file (odb_home </> "packages");
+  parse_package_file (Fn.dirname (get_exe ()) </> "packages");
+(* TEMP DISABLE - TODO: MAKE WORK WITH ocamlbrew
   (* if we have permission to the install dir, set have_perms *)
   (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
  *)
@@ -474,22 +474,18 @@ let () = (* Command line arguments already parsed above *)
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
   Sys.chdir !build_dir;
-  if !cleanup then
-    Sys.command ("rm -rf install-*") |> ignore;
-  if !to_install = [] && not !cleanup then ( (* list packages to install *)
+  if !cleanup then ( Sys.command ("rm -rvf install-*") |> ignore; exit 0 );
+  if !to_install = [] then ( (* list packages to install *)
     let pkgs =
-      List.map (
-        fun wr ->
-          try deps_uri "00list" wr |> Http.get_contents
-          with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
-      ) webroots
-      |> String.concat " "
+      List.map (fun wr ->
+        try deps_uri "00list" wr |> Http.get_contents
+        with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
+      ) webroots |> String.concat " "
     in
     let pkgs = Str.split (Str.regexp " +") pkgs in
     (match pkgs with
     | [] -> print_endline "No packages available"
-    | hd :: tl ->
-        (* Remove duplicate entries (inefficiently) *)
+    | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
         let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
         print_string "Available packages from oasis:";
         List.iter (printf " %s") (List.rev pkgs);
@@ -498,6 +494,10 @@ let () = (* Command line arguments already parsed above *)
     print_string "Locally configured packages:";
     Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
     print_newline ()
+  ) else if !get_only then ( (* just download packages *)
+    let print_loc pid =
+      printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
+    List.iter print_loc (List.rev !to_install);
   ) else ( (* install listed packages *)
     List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
     if !reqs <> [] then (
@@ -509,4 +509,3 @@ let () = (* Command line arguments already parsed above *)
     );
     (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   )
-;;
