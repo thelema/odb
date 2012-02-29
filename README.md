@@ -46,8 +46,9 @@ These packages will override any packages of the same name avaiable at oasis-db.
 ### Requirements
 * [OCaml][] >= 3.12
 * [Findlib][] >= 1.2.5
-* [curl][]
+* [curl][] or [wget][]
 
 [Findlib]: http://projects.camlcity.org/projects/findlib.html/
 [OCaml]: http://caml.inria.fr/ocaml/release.en.html
 [curl]: http://curl.haxx.se/
+[wget]: http://www.gnu.org/software/wget/
