@@ -103,7 +103,7 @@ ulex tarball=http://www.cduce.org/download/ulex-1.1.tar.gz
 csv tarball=http://forge.ocamlcore.org/frs/download.php/613/csv-1.2.2.tar.gz
 
 # Creates tags files for Emacs or vi[m] from OCaml sources.
-otags tarball=http://askra.de/software/otags/otags-3.12.2.tar.gz is_program=true install_as_root=true
+otags tarball=http://askra.de/software/otags/otags-3.12.2.tar.gz is_program=true
 
 #################################
 ##### WALL OF SHAME BELOW #######
