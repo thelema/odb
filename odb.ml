@@ -168,13 +168,18 @@ let parse_package_file fn =
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
 
-(* returns a local filename for the given tarball *)
-let get_tarball p =
+let get_tarball p = (* returns a local filename for the given tarball *)
   let tb = (PL.get ~p ~n:"tarball") in
   if String.sub tb 0 5 = "http:" || String.sub tb 0 4 = "ftp:" then
     (* download to current dir *)
     Http.get_fn ~silent:false tb ()
   else tb (* assume is a local file already *)
+
+let get_tarball_chk p = (* checks md5 if possible *)
+  let fn = get_tarball p in
+  if PL.has_key ~p "md5" && (Digest.file fn |> Digest.to_hex) <> (PL.get ~p ~n:"md5") then
+    (eprintf "Tarball %s failed md5sum verification, aborting\n" fn; exit 5)
+  else (printf "Tarball %s passed md5sum check\n"; fn)
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = (* TODO: AUTODETECT URLs AND PATHS *)
@@ -183,8 +188,7 @@ let to_pkg id = (* TODO: AUTODETECT URLs AND PATHS *)
 
 (* Version number handling *)
 module Ver = struct
-  (* A version number is a list of components, with each component
-     being a string or a number *)
+  (* A version number is a list of (string or number) *)
   type ver_comp = Num of int | Str of string
   type ver = ver_comp list
 
@@ -389,7 +393,7 @@ let clone ~cmd act p =
 let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
-  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball p)) ~err);
+  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p)) ~err);
   if !debug then printf "Extracted tarball for %s into %s\n%!" p.id idir;
   find_install_dir idir
 
