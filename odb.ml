@@ -302,9 +302,9 @@ end
 
 let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
   let suff = Fn.check_suffix fn in
-  if suff ".tar.gz" || suff ".tgz" then       "tar -zxvf " ^ fn
-  else if suff ".tar.bz2" || suff ".tbz" then "tar -jxvf " ^ fn
-  else if suff ".tar.xz" || suff ".txz" then  "tar -Jxvf " ^ fn
+  if suff ".tar.gz" || suff ".tgz" then       "tar -zxf " ^ fn
+  else if suff ".tar.bz2" || suff ".tbz" then "tar -jxf " ^ fn
+  else if suff ".tar.xz" || suff ".txz" then  "tar -Jxf " ^ fn
   else if suff ".zip" then                    "unzip " ^ fn
   else failwith ("Don't know how to extract " ^ fn)
 
