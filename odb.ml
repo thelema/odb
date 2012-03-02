@@ -177,9 +177,13 @@ let get_tarball p = (* returns a local filename for the given tarball *)
 
 let get_tarball_chk p = (* checks md5 if possible *)
   let fn = get_tarball p in
-  if PL.has_key ~p "md5" && (Digest.file fn |> Digest.to_hex) <> (PL.get ~p ~n:"md5") then
-    (eprintf "Tarball %s failed md5sum verification, aborting\n" fn; exit 5)
-  else (printf "Tarball %s passed md5sum check\n"; fn)
+  let sum = Digest.file fn |> Digest.to_hex in
+  if PL.has_key ~p "md5" then
+    if sum <> (PL.get ~p ~n:"md5") then
+      (eprintf "Tarball %s failed md5sum verification, aborting\n" fn; exit 5)
+    else printf "Tarball %s passed md5sum check\n" fn
+  else printf "Tarball %s has no md5 in package info\nmd5sum: %s\n" fn sum;
+  fn
 
 (* TODO: verify no bad chars to make command construction safer *)
 let to_pkg id = (* TODO: AUTODETECT URLs AND PATHS *)
@@ -192,7 +196,6 @@ module Ver = struct
   type ver_comp = Num of int | Str of string
   type ver = ver_comp list
 
-  (* *)
   let rec cmp : ver -> ver -> int = fun a b -> match a,b with
     | [],[] -> 0 (* each component was equal *)
     (* ignore trailing .0's *)
