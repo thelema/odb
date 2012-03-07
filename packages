@@ -15,6 +15,10 @@
 ##   is_library - does this package install a findlib package. "true"/"false"
 ##   is_program - does this package install an executable. "true"/"false"
 ##   deps - what other packages this package depends on.  Comma separated
+##          list of package names, with optional version requirement in ().
+##          Supported comparators are =, >, and >=.  Version ordering is
+##          complex to describe, but should be as expected.
+##        ex: deps=batteries(=2.0beta1),camlp4,bitstring(>=2.0.0)
 ##   install_as_root - forces a particular package to be installed as --sudo
 ##   branch - for git sources, checks out a particular branch (TODO on others)
 ##   md5 - for tarball sources, the md5sum of the tarball as hex
@@ -37,7 +41,7 @@
 #batteries dir=/home/thelema/batteries is_library=true
 batteries git=git://github.com/ocaml-batteries-team/batteries-included.git is_library=true
 
-bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.3.tar.gz is_library=true dep=camlp4
+bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.3.tar.gz is_library=true deps=camlp4
 
 # Unison file synchronizer.
 # Does not respect --prefix in configure, so installs executable in ~/bin
