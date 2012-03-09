@@ -19,29 +19,59 @@ Using odb is very easy. To print a list of available packages, do:
 
     ocaml odb.ml
 
-Once you've chosen some packages, the following command will install them (and their dependencies):
+Once you've chosen some packages, the following command will install
+them (and their dependencies):
 
     ocaml odb.ml <packagenames>
 
-If you install a package that uses C stub libraries, you will need to add `$HOME/.odb/lib/stublibs` to your `ocaml/ld.conf` file.  The following command does this:
+If you install a package that uses C stub libraries, you will need to
+add `$HOME/.odb/lib/stublibs` to your `ocaml/ld.conf` file.  The
+following command does this:
 
     echo $HOME/.odb/lib/stublibs | sudo tee -a `ocamlc -where`/ld.conf
 
+### Oasis-DB
+
+Odb supports installing packages uploaded to Oasis-DB.  These packages
+are grouped into three "repositories", Stable, Testing and Unstable.
+The list of packages and versions of each are shown on the Oasis-DB
+website here: http://oasis.ocamlcore.org/dev/odb/
+
+The latest version of any package on Oasis-DB is available from the
+Unstable Repository.  No checking is done on these packages by the
+repository maintainers, so use at your own risk.  Use `--unstable` to
+enable use of this repository.
+
+After a package is verified as at least minimally working by an
+Oasis-DB admin, it is upgraded to the Testing repository.  This
+repository is where pckages go for testing.  Use `--testing` to use
+the testing repository.
+
+The default repository is the Stable repository, where packages have
+been better verified to work with each other.  These packages should
+be free of version conflicts, and should all work together.  To
+explicitly use the stable repository, use `--stable`, although this is
+the default if no other repository is selected.
+
+It is possible to override the use of Oasis-DB and provide your own
+server with package metadata by setting the `ODB_PACKAGE_ROOT`
+environment variable.
+
 ### Local Packages
 
-Odb has recently added support for local packages.  This means it can
-auto-install packages from sources other than oasis-db.  At the moment, these packages cannot have dependencies that odb will know about, support for this is planned in future releases.
-
-To inform odb about a package that exists in a local directory, put a
+Odb also supports package metadata from a local `packages` file.To
+inform odb about a package that exists in a local directory, put a
 line like one of the following lines into your `~/.odb/packages` file:
 
-    dep batteries local-dir /home/thelema/batteries
+    batteries dir=/home/thelema/batteries
 
 For a package that's available as a tarball from a http source,
 
-    dep foo remote-tar-gz http://www.ocamlforge.org/directory/to/tarball-ver.tgz
+    foo tarball=http://www.ocamlforge.org/directory/to/foo-ver.tgz
 
-These packages will override any packages of the same name avaiable at oasis-db.
+These packages will override any packages of the same name avaiable at
+oasis-db.  Further documentation of the file format is given in the
+example `packages` file in the odb source tree.
 
 ### Requirements
 * [OCaml][] >= 3.12
