@@ -460,7 +460,7 @@ let rec install_full ?(root=false) p =
       List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
       printf "Deps for %s satisfied\n%!" p.id;
       let rec install_get_reqs p =
-        let reqs_imm = install_package p in
+        let reqs_imm = install_package p |> List.filter (fun s -> not (String.contains s '.')) in
         if !auto_reinstall then
           List.iter
             (fun pid -> try to_pkg pid |> install_get_reqs with _ ->
