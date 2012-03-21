@@ -37,9 +37,8 @@
 ## (or the package author) if it doesn't work for you.
 ######################
 
-#Local batteries repository
-#batteries dir=/home/thelema/batteries is_library=true
-batteries git=git://github.com/ocaml-batteries-team/batteries-included.git is_library=true
+#batteries git (commented because batteries in oasis-db)
+#batteries git=git://github.com/ocaml-batteries-team/batteries-included.git is_library=true
 
 bitstring tarball=http://bitstring.googlecode.com/files/ocaml-bitstring-2.0.3.tar.gz is_library=true deps=camlp4
 
