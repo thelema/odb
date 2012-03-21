@@ -36,7 +36,6 @@ let odb_lib = odb_home </> "lib"
 let odb_stubs = odb_home </> "/lib/stublibs"
 let odb_bin = odb_home </> "bin"
 let build_dir = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
-let cleanup = ref false
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
 let force = ref false
@@ -45,18 +44,17 @@ let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
-let get_only = ref false
-let print_info = ref false
 let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
-
+type main_act = Install | Get | Info | Clean
+let main = ref Install
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
 let cmd_line = Arg.align [
-  "--clean", Arg.Set cleanup, " Cleanup downloaded tarballs and install folders";
+  "--clean", Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
   "--sudo", Arg.Set sudo, " Switch to root for installs";
   "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
   "--no-godi", Arg.Clear godi, " Disable use of auto-detected GODI paths";
@@ -70,8 +68,8 @@ let cmd_line = Arg.align [
   "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
   "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
-  "--get", Arg.Set get_only, " Only download and extract packages; don't install";
-  "--info", Arg.Set print_info, " Only print the metadata for the packages listed; don't install";
+  "--get", Arg.Unit(fun () -> main := Get), " Only download and extract packages; don't install";
+  "--info", Arg.Unit(fun () -> main := Info), " Only print the metadata for the packages listed; don't install";
 ]
 
 let () =
@@ -151,24 +149,27 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
+let parse_package_line (fn,line) str =
+  match Str.split (Str.regexp " +") str with
+    | h::_ when h.[0] = '#' -> () (* ignore comments *)
+    | [] -> ()                    (* and blank lines *)
+    | ["dep"; id; "remote-tar-gz"; url] ->
+      Hashtbl.add info_cache id ["tarball", url]
+    | ["dep"; id; "local-dir"; dir] ->
+      Hashtbl.add info_cache id ["dir", dir]
+    | ["dep"; id; "local-tar-gz"; filename] ->
+      Hashtbl.add info_cache id ["tarball", filename]
+    | ["dep"; id; "git"; url] ->
+      Hashtbl.add info_cache id ["git", url]
+    | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
+      Hashtbl.add info_cache id (List.map PL.split_pair tl)
+    | _ -> printf "W: packages file %s line %d is invalid\n" fn !line
+
 let parse_package_file fn =
   if Sys.file_exists fn then
     let ic = open_in fn in let line = ref 0 in
-    try while true do incr line; (* TODO: dep foo ver x=y x2=y2...\n *)
-        match Str.split (Str.regexp " +") (input_line ic) with
-	  | h::_ when h.[0] = '#' -> () (* ignore comments *)
-	  | [] -> ()                    (* and blank lines *)
-          | ["dep"; id; "remote-tar-gz"; url] ->
-            Hashtbl.add info_cache id ["tarball", url]
-          | ["dep"; id; "local-dir"; dir] ->
-            Hashtbl.add info_cache id ["dir", dir]
-          | ["dep"; id; "local-tar-gz"; filename] ->
-            Hashtbl.add info_cache id ["tarball", filename]
-          | ["dep"; id; "git"; url] ->
-            Hashtbl.add info_cache id ["git", url]
-	  | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
-	    Hashtbl.add info_cache id (List.map PL.split_pair tl)
-          | _ -> printf "W: packages file %s line %d is invalid\n" fn !line
+    try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
+	incr line; parse_package_line (fn,line) (input_line ic)
       done; assert false
     with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
 
@@ -475,10 +476,10 @@ let rec install_full ?(root=false) p =
 let () = (* Command line arguments already parsed above *)
   parse_package_file (odb_home </> "packages");
   parse_package_file (Fn.dirname (get_exe ()) </> "packages");
-(* TEMP DISABLE - TODO: MAKE WORK WITH ocamlbrew
+  (* TEMP DISABLE - TODO: MAKE WORK WITH ocamlbrew
   (* if we have permission to the install dir, set have_perms *)
-  (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
- *)
+     (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
+  *)
   (* initialize build directory if needed *)
   if !sudo then build_dir := Fn.temp_dir_name
   else (
@@ -486,40 +487,39 @@ let () = (* Command line arguments already parsed above *)
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
   Sys.chdir !build_dir;
-  if !cleanup then ( Sys.command ("rm -rvf install-*") |> ignore; exit 0 );
-  if !to_install = [] then ( (* list packages to install *)
-    let pkgs =
-      List.map (fun wr ->
-        try deps_uri "00list" wr |> Http.get_contents
-        with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
-      ) webroots |> String.concat " "
-    in
-    let pkgs = Str.split (Str.regexp " +") pkgs in
-    (match pkgs with
-    | [] -> print_endline "No packages available"
-    | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
-        let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
-        print_string "Available packages from oasis:";
-        List.iter (printf " %s") (List.rev pkgs);
-        print_newline ()
-    );
-    print_string "Locally configured packages:";
-    Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
-    print_newline ()
-  ) else if !get_only then ( (* just download packages *)
-    let print_loc pid =
-      printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
-    List.iter print_loc (List.rev !to_install);
-  ) else if !print_info then (
-    List.iter (to_pkg |- PL.print) (List.rev !to_install);
-  ) else ( (* install listed packages *)
-    List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
-    if !reqs <> [] then (
-      print_endline "Some packages depend on the just installed packages and should be re-installed.";
-      print_endline "The command to do this is:";
-      print_string "  ocaml odb.ml -force ";
-      List.iter (printf "%s ") !reqs;
-      print_newline ();
-    );
-    (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
-  )
+  match !main with
+    | Clean -> Sys.command ("rm -rvf install-*") |> ignore
+    | _ when !to_install = [] -> (* list packages to install *)
+      let pkgs =
+	List.map (fun wr ->
+          try deps_uri "00list" wr |> Http.get_contents
+          with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
+	) webroots |> String.concat " "
+      in
+      let pkgs = Str.split (Str.regexp " +") pkgs in
+      (match pkgs with
+	| [] -> print_endline "No packages available"
+	| hd :: tl -> (* Remove duplicate entries (inefficiently) *)
+          let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
+          print_string "Available packages from oasis:";
+          List.iter (printf " %s") (List.rev pkgs);
+          print_newline ()
+      );
+      print_string "Locally configured packages:";
+      Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
+      print_newline ()
+    | Get -> (* just download packages *)
+      let print_loc pid =
+	printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
+      List.iter print_loc (List.rev !to_install)
+    | Info -> List.iter (to_pkg |- PL.print) (List.rev !to_install)
+    | Install -> (* install listed packages *)
+      List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
+      if !reqs <> [] then (
+	print_endline "Some packages depend on the just installed packages and should be re-installed.";
+	print_endline "The command to do this is:";
+	print_string "  ocaml odb.ml --force ";
+	List.iter (printf "%s ") !reqs;
+	print_newline ();
+      );
+  (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
