@@ -24,6 +24,7 @@ let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
+let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -48,7 +49,7 @@ let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found ->
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
-type main_act = Install | Get | Info | Clean
+type main_act = Install | Get | Info | Clean | Package
 let main = ref Install
 
 (* Command line argument handling *)
@@ -70,6 +71,7 @@ let cmd_line = Arg.align [
   "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
   "--get", Arg.Unit(fun () -> main := Get), " Only download and extract packages; don't install";
   "--info", Arg.Unit(fun () -> main := Info), " Only print the metadata for the packages listed; don't install";
+  "--package", Arg.Unit (fun () -> main := Package), " Install all packages from package files";
 ]
 
 let () =
@@ -149,36 +151,36 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
-let parse_package_line (fn,line) str =
+let parse_package_line (fn,line) str =  (* TODO: dep foo ver x=y x2=y2...\n *)
   match Str.split (Str.regexp " +") str with
-    | h::_ when h.[0] = '#' -> () (* ignore comments *)
-    | [] -> ()                    (* and blank lines *)
+    | h::_ when h.[0] = '#' -> None (* ignore comments *)
+    | [] -> None                    (* and blank lines *)
     | ["dep"; id; "remote-tar-gz"; url] ->
-      Hashtbl.add info_cache id ["tarball", url]
+      Hashtbl.add info_cache id ["tarball", url]; Some id
     | ["dep"; id; "local-dir"; dir] ->
-      Hashtbl.add info_cache id ["dir", dir]
+      Hashtbl.add info_cache id ["dir", dir]; Some id
     | ["dep"; id; "local-tar-gz"; filename] ->
-      Hashtbl.add info_cache id ["tarball", filename]
+      Hashtbl.add info_cache id ["tarball", filename]; Some id
     | ["dep"; id; "git"; url] ->
-      Hashtbl.add info_cache id ["git", url]
+      Hashtbl.add info_cache id ["git", url]; Some id
     | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
-      Hashtbl.add info_cache id (List.map PL.split_pair tl)
-    | _ -> printf "W: packages file %s line %d is invalid\n" fn !line
+      Hashtbl.add info_cache id (List.map PL.split_pair tl); Some id
+    | _ -> printf "W: packages file %s line %d is invalid\n" fn !line; None
 
-let parse_package_file fn =
-  if Sys.file_exists fn then
-    let ic = open_in fn in let line = ref 0 in
-    try while true do (* TODO: dep foo ver x=y x2=y2...\n *)
-	incr line; parse_package_line (fn,line) (input_line ic)
-      done; assert false
-    with End_of_file -> printf "%d packages loaded from %s\n" (Hashtbl.length info_cache) fn
+let parse_package_file fn = if not (Sys.file_exists fn) then [] else
+  let ic = open_in fn in let line = ref 0 in let packages = ref [] in
+  try while true do incr line;
+    opt_push packages (parse_package_line (fn,line) (input_line ic))
+    done; assert false (* loop ends by End_of_file *)
+  with End_of_file ->
+    printf "%d packages loaded from %s\n" (List.length !packages) fn; !packages
 
-let get_tarball p = (* returns a local filename for the given tarball *)
-  let tb = (PL.get ~p ~n:"tarball") in
-  if String.sub tb 0 5 = "http:" || String.sub tb 0 4 = "ftp:" then
+let get_remote fn =
+  if String.sub fn 0 5 = "http:" || String.sub fn 0 4 = "ftp:" then
     (* download to current dir *)
-    Http.get_fn ~silent:false tb ()
-  else tb (* assume is a local file already *)
+    Http.get_fn ~silent:false fn ()
+  else fn (* assume is a local file already *)
+let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 
 let get_tarball_chk p = (* checks md5 if possible *)
   let fn = get_tarball p in
@@ -474,8 +476,8 @@ let rec install_full ?(root=false) p =
 
 (** MAIN **)
 let () = (* Command line arguments already parsed above *)
-  parse_package_file (odb_home </> "packages");
-  parse_package_file (Fn.dirname (get_exe ()) </> "packages");
+  ignore(parse_package_file (odb_home </> "packages"));
+  ignore(parse_package_file (Fn.dirname (get_exe ()) </> "packages"));
   (* TEMP DISABLE - TODO: MAKE WORK WITH ocamlbrew
   (* if we have permission to the install dir, set have_perms *)
      (try Unix.(access (Findlib.default_location ()) [R_OK;W_OK;X_OK]); have_perms := true; print_endline "Install permission detected" with Unix.Unix_error _ -> ());
@@ -489,6 +491,11 @@ let () = (* Command line arguments already parsed above *)
   Sys.chdir !build_dir;
   match !main with
     | Clean -> Sys.command ("rm -rvf install-*") |> ignore
+    | Package when !to_install = [] -> (* install everything from system packages *)
+      if !force_all then
+	Hashtbl.iter (fun id p -> install_full ~root:true {id=id;props=p}) info_cache
+      else
+	print_string "No package file given, use --force-all to install all packages from system package files\n"
     | _ when !to_install = [] -> (* list packages to install *)
       let pkgs =
 	List.map (fun wr ->
@@ -523,3 +530,7 @@ let () = (* Command line arguments already parsed above *)
 	print_newline ();
       );
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
+    | Package -> (* install all packages from package files *)
+      List.map (get_remote |- parse_package_file) !to_install
+      |> List.concat
+      |> List.iter (to_pkg |- install_full ~root:true)
