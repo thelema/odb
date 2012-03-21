@@ -46,6 +46,7 @@ let auto_reinstall = ref false
 let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
 let get_only = ref false
+let print_info = ref false
 let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
 let configure_flags = ref ""
 let configure_flags_global = ref ""
@@ -69,7 +70,8 @@ let cmd_line = Arg.align [
   "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
   "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
-  "--get", Arg.Set get_only, " Only download and extract packages; don't install"
+  "--get", Arg.Set get_only, " Only download and extract packages; don't install";
+  "--info", Arg.Set print_info, " Only print the metadata for the packages listed; don't install";
 ]
 
 let () =
@@ -127,6 +129,8 @@ module PL = struct
   let modify_assoc ~n f pl = try let old_v = List.assoc n pl in
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
   let has_key ~p k0 = List.mem_assoc k0 p.props
+  let print p =
+    printf "%s\n" p.id; List.iter (fun (k,v) -> printf "%s=%s\n" k v) p.props
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
@@ -506,6 +510,8 @@ let () = (* Command line arguments already parsed above *)
     let print_loc pid =
       printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
     List.iter print_loc (List.rev !to_install);
+  ) else if !print_info then (
+    List.iter (to_pkg |- PL.print) (List.rev !to_install);
   ) else ( (* install listed packages *)
     List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
     if !reqs <> [] then (
