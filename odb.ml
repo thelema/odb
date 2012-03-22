@@ -18,7 +18,7 @@ let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
-let indir d f = let l=Sys.getcwd () in printf "indir %s -> %s\n%!" l d; Sys.chdir d; let r=f() in Sys.chdir l; printf "outdir %s -> %s\n%!" d l; r
+let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
 let detect_exe exe = Sys.command ("which " ^ exe ^ " > /dev/null") = 0
 let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
@@ -177,7 +177,7 @@ let parse_package_file fn = if not (Sys.file_exists fn) then [] else
     printf "%d packages loaded from %s\n" (List.length !packages) fn; !packages
 
 let get_remote fn =
-  if String.sub fn 0 5 = "http:" || String.sub fn 0 4 = "ftp:" then
+  if String.sub fn 0 5 = "http:" || String.sub fn 0 4 = "ftp:" || String.sub fn 0 6 = "https:"then
     (* download to current dir *)
     Http.get_fn ~silent:false fn ()
   else fn (* assume is a local file already *)
@@ -475,6 +475,16 @@ let rec install_full ?(root=false) p =
       in
       install_get_reqs p
 
+let print_reqs () =
+  if !reqs <> [] then (
+    print_endline "Some packages depend on the just installed packages and should be re-installed.";
+    print_endline "The command to do this is:";
+    print_string "  ocaml odb.ml --force ";
+    List.iter (printf "%s ") !reqs;
+    print_newline ();
+  )
+
+
 (** MAIN **)
 let () = (* Command line arguments already parsed above *)
   ignore(parse_package_file (odb_home </> "packages"));
@@ -491,13 +501,13 @@ let () = (* Command line arguments already parsed above *)
   );
   Sys.chdir !build_dir;
   match !main with
-    | Clean -> Sys.command ("rm -rvf install-*") |> ignore
-    | Package when !to_install = [] -> (* install everything from system packages *)
+  | Clean -> Sys.command ("rm -rvf install-*") |> ignore
+  | Package when !to_install = [] -> (* install everything from system packages *)
       if !force_all then
 	Hashtbl.iter (fun id p -> install_full ~root:true {id=id;props=p}) info_cache
       else
 	print_string "No package file given, use --force-all to install all packages from system package files\n"
-    | _ when !to_install = [] -> (* list packages to install *)
+  | _ when !to_install = [] -> (* list packages to install *)
       let pkgs =
 	List.map (fun wr ->
           try deps_uri "00list" wr |> Http.get_contents
@@ -506,8 +516,8 @@ let () = (* Command line arguments already parsed above *)
       in
       let pkgs = Str.split (Str.regexp " +") pkgs in
       (match pkgs with
-	| [] -> print_endline "No packages available"
-	| hd :: tl -> (* Remove duplicate entries (inefficiently) *)
+      | [] -> print_endline "No packages available"
+      | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
           let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
           print_string "Available packages from oasis:";
           List.iter (printf " %s") (List.rev pkgs);
@@ -516,24 +526,19 @@ let () = (* Command line arguments already parsed above *)
       print_string "Locally configured packages:";
       Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
       print_newline ()
-    | Get -> (* just download packages *)
+  | Get -> (* just download packages *)
       let print_loc pid =
 	printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
       List.iter print_loc (List.rev !to_install)
-    | Info -> List.iter (to_pkg |- PL.print) (List.rev !to_install)
-    | Install -> (* install listed packages *)
+  | Info -> List.iter (to_pkg |- PL.print) (List.rev !to_install)
+  | Install -> (* install listed packages *)
       List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
-      if !reqs <> [] then (
-	print_endline "Some packages depend on the just installed packages and should be re-installed.";
-	print_endline "The command to do this is:";
-	print_string "  ocaml odb.ml --force ";
-	List.iter (printf "%s ") !reqs;
-	print_newline ();
-      );
+      print_reqs()
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
-    | Package -> (* install all packages from package files *)
-        let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
-        print_string "Packages to install: ";
-        List.iter (printf "%s ") ps;
-        print_newline();
-        List.iter (to_pkg |- install_full ~root:true) ps;
+  | Package -> (* install all packages from package files *)
+      let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
+      print_string "Packages to install: ";
+      List.iter (printf "%s ") ps;
+      print_newline();
+      List.iter (to_pkg |- install_full ~root:true) ps;
+      print_reqs ()
