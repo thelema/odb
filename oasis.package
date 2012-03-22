@@ -1,0 +1,32 @@
+## Oasis plus its dependencies
+
+oasis tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/oasis-0.3.0~rc3.tar.gz deps=unix,pcre,odn(>=0.0.3),ocamlyacc,ocamlmod,ocamllex,ocamlify,ocamlgraph,ocamlbuild,make,fileutils(>=0.4.2),batteries is_library=true is_program=true
+
+##fake deps, part of ocaml
+ocamlyacc is_program=true
+unix is_library=true
+ocamllex is_program=true
+ocamlbuild is_program=true
+make is_program=true
+camlp4 is_program=true
+camlp4o is_program=true
+
+##real deps
+
+ocamlmod tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ocamlmod-0.0.1.tar.gz deps=pcre,ocamlbuild,fileutils is_library=false is_program=true
+
+pcre tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/pcre-6.2.3.tar.gz
+
+odn tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ocaml-data-notation-0.0.8.tar.gz deps=type-conv(>=3.0.4),ocamlbuild,camlp4 is_library=true is_program=false
+
+type-conv tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/type-conv-3.0.4.tar.gz deps=ocamlbuild,camlp4o,camlp4 is_library=true is_program=false
+
+fileutils tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ocaml-fileutils-0.4.3.tar.gz deps=unix,str,ocamlbuild,oUnit is_library=true is_program=false
+
+ocamlify tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ocamlify-0.0.1.tar.gz deps= is_library=false is_program=true
+
+ocamlgraph tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ocamlgraph-1.7-oasis2.tar.gz deps=make is_library=true is_program=false
+
+batteries tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/batteries-2.0beta2.tar.gz deps=make is_library=true is_program=false
+
+oUnit tarball=http://oasis.ocamlcore.org/dev/odb/unstable/pkg/ounit-1.1.1.tar.gz deps=unix,ocamlbuild,camlp4 is_library=true is_program=false
