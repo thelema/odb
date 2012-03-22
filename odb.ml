@@ -25,6 +25,7 @@ let get_exe () = (* returns the full path and name of the current program *)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
+let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -115,7 +116,7 @@ module PL = struct
   let get ~p ~n = try List.assoc n p.props with Not_found -> ""
   let get_opt ~p ~n = try Some (List.assoc n p.props) with Not_found -> None
   let get_b ~p ~n =
-    try List.assoc n p.props |> bool_of_string with Not_found -> false
+    try List.assoc n p.props |> bool_of_string with Not_found -> false | Invalid_argument "bool_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to bool" p.id n (List.assoc n p.props))
   let get_i ~p ~n =
     try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
@@ -130,7 +131,7 @@ module PL = struct
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
   let has_key ~p k0 = List.mem_assoc k0 p.props
   let print p =
-    printf "%s\n" p.id; List.iter (fun (k,v) -> printf "%s=%s\n" k v) p.props
+    printf "%s " p.id; List.iter (fun (k,v) -> printf "%s=%s " k v) p.props; printf "\n"
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
@@ -152,7 +153,7 @@ let get_info id = (* gets a package's info from the repo *)
     find_uri webroots
 
 let parse_package_line (fn,line) str =  (* TODO: dep foo ver x=y x2=y2...\n *)
-  match Str.split (Str.regexp " +") str with
+  match Str.split (Str.regexp " +") (chomp str) with
     | h::_ when h.[0] = '#' -> None (* ignore comments *)
     | [] -> None                    (* and blank lines *)
     | ["dep"; id; "remote-tar-gz"; url] ->
@@ -163,7 +164,7 @@ let parse_package_line (fn,line) str =  (* TODO: dep foo ver x=y x2=y2...\n *)
       Hashtbl.add info_cache id ["tarball", filename]; Some id
     | ["dep"; id; "git"; url] ->
       Hashtbl.add info_cache id ["git", url]; Some id
-    | id::tl when List.for_all (fun s -> String.contains s '=') tl ->
+    | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
       Hashtbl.add info_cache id (List.map PL.split_pair tl); Some id
     | _ -> printf "W: packages file %s line %d is invalid\n" fn !line; None
 
@@ -531,6 +532,8 @@ let () = (* Command line arguments already parsed above *)
       );
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
     | Package -> (* install all packages from package files *)
-      List.map (get_remote |- parse_package_file) !to_install
-      |> List.concat
-      |> List.iter (to_pkg |- install_full ~root:true)
+        let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
+        print_string "Packages to install: ";
+        List.iter (printf "%s ") ps;
+        print_newline();
+        List.iter (to_pkg |- install_full ~root:true) ps;
