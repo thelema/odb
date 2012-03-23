@@ -33,10 +33,10 @@ let webroots =
     (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
 (*let webroots = ["http://mutt.cse.msu.edu:8081/"] *)
 let default_base = (Sys.getenv "HOME") </> ".odb"
-let odb_home = getenv_def ~def:default_base "ODB_INSTALL_DIR"
-let odb_lib = odb_home </> "lib"
-let odb_stubs = odb_home </> "/lib/stublibs"
-let odb_bin = odb_home </> "bin"
+let odb_home  = getenv_def ~def:default_base "ODB_INSTALL_DIR"
+let odb_lib   = getenv_def ~def:(odb_home </> "lib") "ODB_LIB_DIR"
+let odb_stubs = getenv_def ~def:(odb_lib </> "stublibs") "ODB_STUBS_DIR"
+let odb_bin   = getenv_def ~def:(odb_home </> "bin") "ODB_BIN_DIR"
 let build_dir = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
