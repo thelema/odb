@@ -19,7 +19,10 @@ let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ~def v = try Sys.getenv v with Not_found -> def
 let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
-let detect_exe exe = Sys.command ("which " ^ exe ^ " > /dev/null") = 0
+let todevnull ?err cmd =
+  let err = match err with Some () -> "2" | None -> "" in
+  if Sys.os_type = "Win32" then cmd ^ " >NUL" else cmd ^ " " ^ err ^ "> /dev/null"
+let detect_exe exe = Sys.command (todevnull ("which " ^ exe)) = 0
 let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
@@ -255,11 +258,11 @@ module Dep = struct
     try Some (Findlib.package_property [] p.id "version" |> parse_ver)
     with Findlib.No_such_package _ -> None
   let installed_ver_prog p =
-    if Sys.command ("which \"" ^ p.id ^ "\" > /dev/null") <> 0 then None
+    if Sys.command (todevnull ("which \"" ^ p.id ^ "\"")) <> 0 then None
     else
       try
         let fn = Fn.temp_file "odb" ".ver" in
-        ignore(Sys.command (p.id ^ " --version > " ^ fn ^ " 2> /dev/null"));
+        ignore(Sys.command (todevnull ~err:() (p.id ^ " --version > " ^ fn)));
         let ic = open_in fn in
         let ver_string = input_line ic in
         close_in ic;
@@ -333,9 +336,11 @@ let install_from_current_dir p =
   let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
   let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
-  let install_pre =
-    if as_root then "sudo " else if !have_perms || !godi then "" else
-        "OCAMLFIND_DESTDIR="^odb_lib^" " in
+  let install_pre, destdir =
+    if as_root then "sudo ", ""
+    else if !have_perms || !godi then "", ""
+    else "", odb_lib
+  in
 
   (* define exceptions to raise for errors in various steps *)
   let config_fail = Failure ("Could not configure " ^ p.id)  in
@@ -367,6 +372,9 @@ let install_from_current_dir p =
               failwith "No gnumake/gmake/make executable found; cannot build"
       in
       run_or ~cmd:make ~err:build_fail;
+      (* We rely on the fact that, at least on windows, setting an environment
+       * variable to the empty string amounts to clearing it. *)
+      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
   );
