@@ -29,6 +29,7 @@ let get_exe () = (* returns the full path and name of the current program *)
 let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
 let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
 let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
+let print_list l = List.iter (printf "%s ") l; print_newline ()
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -353,8 +354,7 @@ let install_from_current_dir p =
   let install_fail = Failure ("Could not install package " ^ p.id) in
 
   (* Do the install *)
-  if !debug then printf "Now installing with %s\n" (string_of_build_type buildtype);
-  flush stdout;
+  if !debug then printf "Now installing with %s\n%!" (string_of_build_type buildtype);
   ( match buildtype with
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
@@ -489,18 +489,16 @@ let rec install_full ?(root=false) p =
       in
       install_get_reqs p
 
-let print_reqs () =
+let install_list pkgs =
+  List.iter (to_pkg |- install_full ~root:true) pkgs;
   if !reqs <> [] then (
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
     print_string "  ocaml odb.ml --force ";
-    List.iter (printf "%s ") !reqs;
-    print_newline ();
+    print_list reqs;
   )
 
-
-(** MAIN **)
-let () = (* Command line arguments already parsed above *)
+let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   ignore(parse_package_file (odb_home </> "packages"));
   ignore(parse_package_file (Fn.dirname (get_exe ()) </> "packages"));
   (* TEMP DISABLE - TODO: MAKE WORK WITH ocamlbrew
@@ -533,9 +531,8 @@ let () = (* Command line arguments already parsed above *)
       | [] -> print_endline "No packages available"
       | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
           let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
-          print_string "Available packages from oasis:";
-          List.iter (printf " %s") (List.rev pkgs);
-          print_newline ()
+          print_string "Available packages from oasis: ";
+          print_list (List.rev pkgs);
       );
       print_string "Locally configured packages:";
       Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
@@ -545,14 +542,9 @@ let () = (* Command line arguments already parsed above *)
 	printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
       List.iter print_loc (List.rev !to_install)
   | Info -> List.iter (to_pkg |- PL.print) (List.rev !to_install)
-  | Install -> (* install listed packages *)
-      List.iter (to_pkg |- install_full ~root:true) (List.rev !to_install);
-      print_reqs()
+  | Install -> install_list (List.rev !to_install);
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
       let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
-      print_string "Packages to install: ";
-      List.iter (printf "%s ") ps;
-      print_newline();
-      List.iter (to_pkg |- install_full ~root:true) ps;
-      print_reqs ()
+      print_string "Packages to install: "; print_list ps;
+      install_list ps
