@@ -336,9 +336,11 @@ let install_from_current_dir p =
   let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
   let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
-  let install_pre =
-    if as_root then "sudo " else if !have_perms || !godi then "" else
-        "OCAMLFIND_DESTDIR="^odb_lib^" " in
+  let install_pre, destdir =
+    if as_root then "sudo ", ""
+    else if !have_perms || !godi then "", ""
+    else "", odb_lib
+  in
 
   (* define exceptions to raise for errors in various steps *)
   let config_fail = Failure ("Could not configure " ^ p.id)  in
@@ -370,6 +372,9 @@ let install_from_current_dir p =
               failwith "No gnumake/gmake/make executable found; cannot build"
       in
       run_or ~cmd:make ~err:build_fail;
+      (* We rely on the fact that, at least on windows, setting an environment
+       * variable to the empty string amounts to clearing it. *)
+      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
   );
