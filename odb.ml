@@ -317,6 +317,10 @@ let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
   else failwith ("Don't know how to extract " ^ fn)
 
 type build_type = Oasis | Omake | Make
+let string_of_build_type = function
+  | Oasis -> "Oasis"
+  | Omake -> "OMake"
+  | Make -> "Make"
 
 (* Installing a package *)
 let install_from_current_dir p =
@@ -344,6 +348,7 @@ let install_from_current_dir p =
   let install_fail = Failure ("Could not install package " ^ p.id) in
 
   (* Do the install *)
+  if !debug then printf "Now installing with %s" (string_of_build_type buildtype);
   ( match buildtype with
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
