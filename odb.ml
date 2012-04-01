@@ -495,7 +495,7 @@ let install_list pkgs =
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
     print_string "  ocaml odb.ml --force ";
-    print_list reqs;
+    print_list !reqs;
   )
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
