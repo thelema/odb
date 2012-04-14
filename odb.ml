@@ -50,7 +50,7 @@ let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
-let godi = ref (try ignore (Sys.getenv "GODI_LOCALBASE"); true with Not_found -> false)
+let base = ref (getenv_def ~def:"" "GODI_LOCALBASE" // getenv_def ~def:"" "OCAML_BASE")
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
@@ -63,7 +63,7 @@ let cmd_line = Arg.align [
   "--clean", Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
   "--sudo", Arg.Set sudo, " Switch to root for installs";
   "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
-  "--no-godi", Arg.Clear godi, " Disable use of auto-detected GODI paths";
+  "--no-base", Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
   "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   "--configure-flags-all", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   "--force", Arg.Set force, " Force (re)installation of packages named";
@@ -81,7 +81,7 @@ let cmd_line = Arg.align [
 
 let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
-  if !godi then print_endline "GODI_LOCALBASE detected, using it for installs";
+  if !base <> "" then print_endline ("Installing to OCaml base: " ^ !base);
   ()
 
 (* micro-http library *)
@@ -337,13 +337,12 @@ let install_from_current_dir p =
 
   (* configure installation parameters based on command-line flags *)
   let as_root = PL.get_b p "install_as_root" || !sudo in
-  let godi_localbase = if !godi then try Sys.getenv "GODI_LOCALBASE" with Not_found -> failwith "$GODI_LOCALBASE must be set if --godi is used" else "" in
-  let config_opt = if as_root || !have_perms then "" else if !godi then " --prefix " ^ godi_localbase else " --prefix " ^ odb_home in
+  let config_opt = if as_root || !have_perms then "" else if !base <> "" then " --prefix " ^ !base else " --prefix " ^ odb_home in
   let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
   let install_pre, destdir =
     if as_root then "sudo ", ""
-    else if !have_perms || !godi then "", ""
+    else if !have_perms || !base <> "" then "", ""
     else "", odb_lib
   in
 
@@ -449,7 +448,7 @@ let get_package p = get_package p |> tap (printf "package downloaded to %s\n%!")
 let uninstall p =
   let as_root = PL.get_b p "install_as_root" || !sudo in
   let install_pre =
-    if as_root then "sudo " else if !have_perms || !godi then "" else
+    if as_root then "sudo " else if !have_perms || !base <> "" then "" else
         "OCAMLFIND_DESTDIR="^odb_lib^" " in
   print_endline ("Uninstalling forced library " ^ p.id);
   Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
