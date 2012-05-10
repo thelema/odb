@@ -3,6 +3,7 @@
 ## Other lines have format
 ##   <package-name> <key1>=<value1> <key2>=<value2> ...
 ## no whitespace is allowed except before each key
+## the default place for this file is ~/.odb/packages
 
 ## Important keys:
 ## Package sources (at least one required)
