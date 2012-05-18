@@ -26,7 +26,8 @@ let detect_exe exe = Sys.command (todevnull ("which " ^ exe)) = 0
 let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
-let run_or ~cmd ~err = if Sys.command cmd <> 0 then raise err
+let run_or ~cmd ~err =
+  if !debug then printf "R:%s\n%!" cmd; if Sys.command cmd <> 0 then raise err
 let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
 let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
 let print_list l = List.iter (printf "%s ") l; print_newline ()
