@@ -145,14 +145,15 @@ let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (print
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
 let get_info id = (* gets a package's info from the repo *)
-  try Hashtbl.find info_cache id with Not_found ->
+  try Hashtbl.find info_cache id
+  with Not_found ->
     let rec find_uri = function
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
-      |> tap (Hashtbl.add info_cache id)
-      (* hack the tarball location so it's prefixed by the server address *)
-      |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
+            (* hack the tarball location so it's prefixed by the server address *)
+            |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
+            |> tap (Hashtbl.add info_cache id)
         with Failure _ -> find_uri tl
     in
     find_uri webroots
