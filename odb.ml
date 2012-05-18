@@ -280,12 +280,9 @@ module Dep = struct
     if Sys.command (todevnull ("which \"" ^ p.id ^ "\"")) <> 0 then None
     else
       try
-        let fn = Fn.temp_file "odb" ".ver" in
-        ignore(Sys.command (todevnull ~err:() (p.id ^ " --version > " ^ fn)));
-        let ic = open_in fn in
+        let ic = Unix.open_process_in p.id in
         let ver_string = input_line ic in
-        close_in ic;
-        Sys.remove fn;
+        ignore(Unix.close_process_in ic);
         Some (parse_ver ver_string)
       with _ -> Some [] (* unknown ver *)
   let get_ver p =
