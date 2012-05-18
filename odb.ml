@@ -186,43 +186,33 @@ let get_remote fn =
   if String.sub fn 0 5 = "http:" || String.sub fn 0 4 = "ftp:" || String.sub fn 0 6 = "https:"then
     (* download to current dir *)
     Http.get_fn ~silent:false fn ()
-  else fn (* assume is a local file already *)
+  else (if !debug then printf "Local File %s\n" fn; fn)
 let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 
 (* run the given command and return its output as a string *)
 let get_command_output cmd =
-  let cmd_out   = Unix.open_process_in cmd in
-  let buff_size = 1024*1024                in
-  let buff      = Buffer.create buff_size  in
-  let _         =
-    try
+  let cmd_out = Unix.open_process_in cmd in
+  let buff    = Buffer.create 1024 in
+  (try
       while true do
         Buffer.add_string buff (input_line cmd_out);
         Buffer.add_char   buff '\n'; (* stripped out by input_line *)
       done;
     with
-    | End_of_file -> ignore(Unix.close_process_in cmd_out)
-    | exn         -> ignore(Unix.close_process_in cmd_out); raise exn
-  in
+    | End_of_file -> ignore(Unix.close_process_in cmd_out));
   Buffer.contents buff
 
 let get_tarball_chk p = (* checks package signature if possible *)
-  let fn  = get_tarball p                   in
-  let sum = Digest.file fn |> Digest.to_hex in
+  let fn = get_tarball p in
+  let test ~actual ~hash =
+    if actual <> (PL.get ~p ~n:hash) then (eprintf  "Tarball %s failed %ssum verification, aborting\n" fn hash; exit 5)
+    else printf "Tarball %s passed %s check\n" fn hash
+  in
   if PL.has_key ~p "sha1" then
-    let actual = get_command_output
-      ("sha1sum " ^ fn) |> Str.split (Str.regexp " ") |> List.hd in
-    let wanted = PL.get ~p ~n:"sha1"                             in
-    if actual <> wanted then
-      (eprintf  "Tarball %s failed sha1sum verification, aborting\n" fn;
-       exit 5)
-    else printf "Tarball %s passed sha1sum check\n" fn
+    test ~hash:"sha1" ~actual:(get_command_output ("sha1sum " ^ fn) |> Str.split (Str.regexp " ") |> List.hd)
   else if PL.has_key ~p "md5" then
-    if sum <> (PL.get ~p ~n:"md5") then
-      (eprintf  "Tarball %s failed md5sum verification, aborting\n" fn;
-       exit 5)
-    else printf "Tarball %s passed md5sum check\n" fn
-  else printf   "Tarball %s has no md5 in package info\nmd5sum: %s\n" fn sum;
+    test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5"
+  else printf "Tarball %s has no hash to verify\n" fn;
   fn
 
 (* TODO: verify no bad chars to make command construction safer *)
