@@ -151,7 +151,7 @@ let get_info id = (* gets a package's info from the repo *)
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
-            (* hack the tarball location so it's prefixed by the server address *)
+            (* prefix the tarball location by the server address *)
             |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
             |> tap (Hashtbl.add info_cache id)
         with Failure _ -> find_uri tl
@@ -182,10 +182,10 @@ let parse_package_file fn = if not (Sys.file_exists fn) then [] else
   with End_of_file ->
     printf "%d packages loaded from %s\n" (List.length !packages) fn; !packages
 
+let is_uri str = String.sub str 0 5 = "http:" || String.sub str 0 4 = "ftp:" || String.sub str 0 6 = "https:"
+
 let get_remote fn =
-  if String.sub fn 0 5 = "http:" || String.sub fn 0 4 = "ftp:" || String.sub fn 0 6 = "https:"then
-    (* download to current dir *)
-    Http.get_fn ~silent:false fn ()
+  if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
   else (if !debug then printf "Local File %s\n" fn; fn)
 let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 
@@ -215,10 +215,11 @@ let get_tarball_chk p = (* checks package signature if possible *)
   else printf "Tarball %s has no hash to verify\n" fn;
   fn
 
-(* TODO: verify no bad chars to make command construction safer *)
-let to_pkg id = (* TODO: AUTODETECT URLs AND PATHS *)
-  (* if id.[0] = '/' then { id =  *)
-  {id = id; props = get_info id}
+let to_pkg id =
+  if Sys.file_exists id || is_uri id then
+    {id=Filename.basename id; props= ["tarball",id;"cli","yes"]}
+  else
+    {id = id; props = get_info id}
 
 (* Version number handling *)
 module Ver = struct
@@ -400,7 +401,7 @@ let install_from_current_dir p =
       run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
   );
   (* test whether installation was successful *)
-  if not (Dep.has_dep (p,None)) then (
+  if (PL.get p "cli" <> "yes") && not (Dep.has_dep (p,None)) then (
     print_endline ("Problem with installed package: " ^ p.id);
     print_endline ("Installed package is not available to the system");
     print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
