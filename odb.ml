@@ -373,6 +373,7 @@ let install_from_current_dir p =
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
       run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
       (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
       run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
     | Omake ->
