@@ -182,7 +182,7 @@ let parse_package_file fn = if not (Sys.file_exists fn) then [] else
   with End_of_file ->
     printf "%d packages loaded from %s\n" (List.length !packages) fn; !packages
 
-let is_uri str = String.sub str 0 5 = "http:" || String.sub str 0 4 = "ftp:" || String.sub str 0 6 = "https:"
+let is_uri str = (String.length str > 6) && (String.sub str 0 5 = "http:" || String.sub str 0 4 = "ftp:" || String.sub str 0 6 = "https:")
 
 let get_remote fn =
   if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
