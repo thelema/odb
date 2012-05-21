@@ -335,20 +335,18 @@ let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
   else if suff ".zip" then                    "unzip " ^ fn
   else failwith ("Don't know how to extract " ^ fn)
 
-type build_type = Oasis | Omake | Make
+type build_type = Oasis_bootstrap | Oasis | Omake | Make
+
 let string_of_build_type = function
+  | Oasis_bootstrap -> "Oasis_bootstrap"
   | Oasis -> "Oasis"
   | Omake -> "OMake"
   | Make -> "Make"
 
 (* Installing a package *)
 let install_from_current_dir p =
+  let rec try_build_using buildtype =
   if !debug then printf "Installing %s from %s\n" p.id (Sys.getcwd ());
-  (* detect build type based on files in directory *)
-  let buildtype =
-    if Sys.file_exists "setup.ml" then Oasis
-    else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
-    else Make in
 
   (* configure installation parameters based on command-line flags *)
   let as_root = PL.get_b p "install_as_root" || !sudo in
@@ -362,6 +360,8 @@ let install_from_current_dir p =
   in
 
   (* define exceptions to raise for errors in various steps *)
+  let oasis_fail = Failure ("Could not bootstrap from _oasis in package: " ^ p.id)  in
+
   let config_fail = Failure ("Could not configure " ^ p.id)  in
   let build_fail = Failure ("Could not build " ^ p.id) in
   (*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
@@ -369,18 +369,23 @@ let install_from_current_dir p =
 
   (* Do the install *)
   if !debug then printf "Now installing with %s\n%!" (string_of_build_type buildtype);
-  ( match buildtype with
+  match buildtype with
+    | Oasis_bootstrap ->
+      run_or ~cmd:("oasis setup") ~err:oasis_fail;
+      try_build_using Oasis
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
       run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
       (*        run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
       run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+      true
     | Omake ->
       if not (detect_exe "omake") then
         failwith "OMake executable not found; cannot build";
       run_or ~cmd:"omake" ~err:build_fail;
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
+      true
     | Make ->
       if Sys.file_exists "configure" then
         run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
@@ -391,23 +396,33 @@ let install_from_current_dir p =
             if detect_exe "make" then "make" else
               failwith "No gnumake/gmake/make executable found; cannot build"
       in
-      run_or ~cmd:make ~err:build_fail;
-      (* We rely on the fact that, at least on windows, setting an environment
-       * variable to the empty string amounts to clearing it. *)
-      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
-      (* TODO: MAKE TEST *)
-      run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
-  );
+        if Sys.command make <> 0 then try_build_using Oasis_bootstrap
+        else (
+          (* We rely on the fact that, at least on windows, setting an environment
+           * variable to the empty string amounts to clearing it. *)
+          Unix.putenv "OCAMLFIND_DESTDIR" destdir;
+          (* TODO: MAKE TEST *)
+          run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
+          true)
+  in
+  (* detect build type based on files in directory *)
+  let buildtype =
+    if Sys.file_exists "setup.ml" then Oasis
+    else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
+    else Make in
+  if try_build_using buildtype then (
   (* test whether installation was successful *)
-  if not (Dep.has_dep (p,None)) then (
-    print_endline ("Problem with installed package: " ^ p.id);
-    print_endline ("Installed package is not available to the system");
-    print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
-    print_endline ("and "^odb_bin^" is in your PATH");
-    exit 1;
-  );
-  print_endline ("Successfully installed " ^ p.id);
-  Dep.get_reqs p (* return the reqs *)
+    if not (Dep.has_dep (p,None)) then (
+      print_endline ("Problem with installed package: " ^ p.id);
+      print_endline ("Installed package is not available to the system");
+      print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
+      print_endline ("and "^odb_bin^" is in your PATH");
+      exit 1;
+    );
+    print_endline ("Successfully installed " ^ p.id);
+    Dep.get_reqs p (* return the reqs *)
+  ) else failwith ("None of the build fallbacks could build " ^ p.id)
+
 
 (* detect directory created by tarball extraction or git clone *)
 let find_install_dir dir =
