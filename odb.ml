@@ -433,8 +433,10 @@ let rec install_from_current_dir p =
     | Oasis_bootstrap ->
         (if not (detect_exe "oasis") 
          then begin
-          print_endline "This package most likely needs oasis on the path. Trying to get oasis.";
-          install_full ~root:true (to_pkg "oasis")
+           printf "This package (%s) most likely needs oasis on the path." p.id;
+           print_endline "In general tarballs shouldn't require oasis.";
+           print_endline "Trying to get oasis.";
+           install_full ~root:true (to_pkg "oasis")
          end);
         run_or ~cmd:("oasis setup") ~err:oasis_fail;
         try_build_using Oasis
