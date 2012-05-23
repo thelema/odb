@@ -336,8 +336,10 @@ let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
   else if suff ".zip" then                    "unzip " ^ fn
   else failwith ("Don't know how to extract " ^ fn)
 
-type build_type = Oasis | Omake | Make
+type build_type = Oasis_bootstrap | Oasis | Omake | Make
+
 let string_of_build_type = function
+  | Oasis_bootstrap -> "Oasis_bootstrap"
   | Oasis -> "Oasis"
   | Omake -> "OMake"
   | Make -> "Make"
@@ -345,32 +347,34 @@ let string_of_build_type = function
 (* Installing a package *)
 let install_from_current_dir p =
   if !debug then printf "Installing %s from %s\n" p.id (Sys.getcwd ());
-  (* detect build type based on files in directory *)
-  let buildtype =
-    if Sys.file_exists "setup.ml" then Oasis
-    else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
-    else Make in
+
+  let rec try_build_using buildtype =
 
   (* configure installation parameters based on command-line flags *)
-  let as_root = PL.get_b p "install_as_root" || !sudo in
-  let config_opt = if as_root || !have_perms then "" else if !base <> "" then " --prefix " ^ !base else " --prefix " ^ odb_home in
-  let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
-  let config_opt = config_opt ^ " " ^ !configure_flags_global in
-  let install_pre, destdir =
-    if as_root then "sudo ", ""
-    else if !have_perms || !base <> "" then "", ""
-    else "", odb_lib
-  in
+    let as_root = PL.get_b p "install_as_root" || !sudo in
+    let config_opt = if as_root || !have_perms then "" else if !base <> "" then " --prefix " ^ !base else " --prefix " ^ odb_home in
+    let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
+    let config_opt = config_opt ^ " " ^ !configure_flags_global in
+    let install_pre, destdir =
+      if as_root then "sudo ", ""
+      else if !have_perms || !base <> "" then "", ""
+      else "", odb_lib
+    in
 
-  (* define exceptions to raise for errors in various steps *)
-  let config_fail = Failure ("Could not configure " ^ p.id)  in
-  let build_fail = Failure ("Could not build " ^ p.id) in
-  (*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
-  let install_fail = Failure ("Could not install package " ^ p.id) in
+    (* define exceptions to raise for errors in various steps *)
+    let oasis_fail = Failure ("Could not bootstrap from _oasis in package: " ^ p.id)  in
+    let config_fail = Failure ("Could not configure " ^ p.id)  in
+    let build_fail = Failure ("Could not build " ^ p.id) in
+    (*    let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
+    let install_fail = Failure ("Could not install package " ^ p.id) in
 
-  (* Do the install *)
-  if !debug then printf "Now installing with %s\n%!" (string_of_build_type buildtype);
-  ( match buildtype with
+    (* Do the install *)
+    if !debug then printf "Now installing with %s\n%!" (string_of_build_type buildtype);
+
+    match buildtype with
+    | Oasis_bootstrap ->
+        run_or ~cmd:("oasis setup") ~err:oasis_fail;
+        try_build_using Oasis
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
       run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
@@ -393,13 +397,23 @@ let install_from_current_dir p =
             if detect_exe "make" then "make" else
               failwith "No gnumake/gmake/make executable found; cannot build"
       in
-      run_or ~cmd:make ~err:build_fail;
-      (* We rely on the fact that, at least on windows, setting an environment
-       * variable to the empty string amounts to clearing it. *)
-      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
-      (* TODO: MAKE TEST *)
-      run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail;
-  );
+      if Sys.command make <> 0 then try_build_using Oasis_bootstrap
+      else (
+        (* We rely on the fact that, at least on windows, setting an environment
+         * variable to the empty string amounts to clearing it. *)
+        Unix.putenv "OCAMLFIND_DESTDIR" destdir;
+        (* TODO: MAKE TEST *)
+        run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail)
+  in
+  (* detect build type based on files in directory *)
+  let buildtype =
+    if Sys.file_exists "setup.ml" then Oasis
+    else if Sys.file_exists "OMakefile" && Sys.file_exists "OMakeroot" then Omake
+    else Make
+  in
+
+  try_build_using buildtype;
+
   (* test whether installation was successful *)
   if (PL.get p "cli" <> "yes") && not (Dep.has_dep (p,None)) then (
     print_endline ("Problem with installed package: " ^ p.id);
@@ -410,6 +424,8 @@ let install_from_current_dir p =
   );
   print_endline ("Successfully installed " ^ p.id);
   Dep.get_reqs p (* return the reqs *)
+
+
 
 (* detect directory created by tarball extraction or git clone *)
 let find_install_dir dir =
