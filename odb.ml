@@ -515,7 +515,7 @@ and install_full ?(root=false) p =
       printf "Installing %s\n%!" p.id;
       let deps = Dep.get_deps p in
       List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
-      printf "Deps for %s satisfied\n%!" p.id;
+      if deps <> [] then printf "Deps for %s satisfied\n%!" p.id;
       let rec install_get_reqs p =
         let reqs_imm = install_package p |> List.filter (fun s -> not (String.contains s '.')) in
         if !auto_reinstall then
