@@ -432,15 +432,15 @@ let rec install_from_current_dir p =
 
     match buildtype with
     | Oasis_bootstrap ->
-        (if not (detect_exe "oasis")
-         then begin
-           printf "This package (%s) most likely needs oasis on the path." p.id;
-           print_endline "In general tarballs shouldn't require oasis.";
-           print_endline "Trying to get oasis.";
-           install_full ~root:true (to_pkg "oasis")
-         end);
-        run_or ~cmd:("oasis setup") ~err:oasis_fail;
-        try_build_using Oasis
+      if not (Sys.file_exists "_oasis") then failwith "_oasis file not found in package, cannot bootstrap.";
+      if not (detect_exe "oasis") then begin
+        printf "This package (%s) most likely needs oasis on the path." p.id;
+        print_endline "In general tarballs shouldn't require oasis.";
+        print_endline "Trying to get oasis.";
+        install_full ~root:true (to_pkg "oasis")
+      end;
+      run_or ~cmd:("oasis setup") ~err:oasis_fail;
+      try_build_using Oasis
     | Oasis ->
       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
       run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
