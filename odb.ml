@@ -140,7 +140,7 @@ module PL = struct
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
-let mod_tarball webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn |> dtap (printf "tarball at %s\n")
+let prefix_webroot webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn
 
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
@@ -152,7 +152,7 @@ let get_info id = (* gets a package's info from the repo *)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
             (* prefix the tarball location by the server address *)
-            |> PL.modify_assoc ~n:"tarball" (mod_tarball webroot)
+            |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
             |> tap (Hashtbl.add info_cache id)
         with Failure _ -> find_uri tl
     in
