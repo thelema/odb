@@ -1,0 +1,25 @@
+# odb package file for ocaml core 108.00
+
+#external dependencies not listed:
+# oUnit (auto-installed by odb from oasis-db)
+# ocaml 3.12
+# findlib
+
+async deps=async_core,async_unix,async_extra tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/async-108.00.tar.gz
+async_core deps=sexplib,pa_ounit,fieldslib,bin_prot,core tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/async_core-108.00.tar.gz
+async_extra deps=sexplib,fieldslib,bin_prot,pa_ounit,pa_pipebang,core,async_core,async_unix tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/async_extra-108.00.tar.gz
+async_unix deps=sexplib,fieldslib,bin_prot,pa_ounit,pa_pipebang,core,async_core tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/async_unix-108.00.tar.gz
+bin_prot tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/bin_prot-108.00.tar.gz
+comparelib deps=type_conv tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/comparelib-108.00.tar.gz
+core deps=variantslib,sexplib,fieldslib,bin_prot,pa_ounit,pa_pipebang,res tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/core-108.00.tar.gz
+core_extended deps=sexplib,fieldslib,bin_prot,pa_ounit,pa_pipebang,core,pcre,res tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/core_extended-108.00.tar.gz
+fieldslib deps=type_conv(>=3.0.5) tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/fieldslib-108.00.tar.gz
+pa_ounit deps=type_conv(>=3.0.5) tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/pa_ounit-108.00.tar.gz
+pa_pipebang deps=oUnit,type_conv(>=3.0.5) tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/pipebang-108.00.tar.gz
+sexplib tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/sexplib-108.00.tar.gz
+type_conv tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/type_conv-108.00.tar.gz
+typehashlib deps=type_conv(>=3.0.5) tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/typehashlib-108.00.tar.gz
+variantslib deps=type_conv(>=3.0.5) tarball=https://bitbucket.org/yminsky/ocaml-core/downloads/variantslib-108.00.tar.gz
+
+#external dep
+res tarball=https://bitbucket.org/mmottl/res/downloads/res-3.2.0.tar.gz
