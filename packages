@@ -25,14 +25,6 @@
 ##   md5  - for tarball sources, the md5sum of the tarball as hex
 ##   sha1 - sha1sum of the tarball as hex
 
-## Alternate package syntax:
-##   dep <package-name> <src>
-## where <src> is one of the following:
-##   remote-tar-gz <URL>  (tarball=URL)
-##   local-dir <DIR>      (dir=DIR)
-##   local-tar-gz <FILE>  (tarball=FILE)
-##   git <URL>            (git=URL)
-
 ######################
 ## WORKING PACKAGES (tested on Ubuntu/64 w/ OCaml 3.12.1)
 ## Submit an issue to https://github.com/thelema/odb/issues

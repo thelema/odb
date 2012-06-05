@@ -14,10 +14,11 @@ let (|-) f g x = g (f x)
 let tap f x = f x; x
 let debug = ref false
 let dtap f x = if !debug then f x; x
+let dprintf fmt = if !debug then printf fmt else ifprintf stdout fmt
 let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
-let getenv_def ~def v = try Sys.getenv v with Not_found -> def
+let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
 let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
 let todevnull ?err cmd =
   let err = match err with Some () -> "2" | None -> "" in
@@ -27,7 +28,7 @@ let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err =
-  if !debug then printf "R:%s\n%!" cmd; if Sys.command cmd <> 0 then raise err
+  dprintf "R:%s\n%!" cmd; if Sys.command cmd <> 0 then raise err
 let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
 let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
 let print_list l = List.iter (printf "%s ") l; print_newline ()
@@ -51,7 +52,7 @@ let repository = ref "stable"
 let auto_reinstall = ref false
 let have_perms = ref false (* auto-detected in main *)
 let ignore_unknown = ref false
-let base = ref (getenv_def ~def:"" "GODI_LOCALBASE" // getenv_def ~def:"" "OCAML_BASE")
+let base = ref (getenv_def "GODI_LOCALBASE" // getenv_def "OCAML_BASE")
 let configure_flags = ref ""
 let configure_flags_global = ref ""
 let reqs = ref [] (* what packages need to be reinstalled because of updates *)
@@ -60,6 +61,7 @@ let main = ref Install
 
 (* Command line argument handling *)
 let push_install s = to_install := s :: !to_install
+let set_ref ref v = Arg.Unit (fun () -> ref := v)
 let cmd_line = Arg.align [
   "--clean", Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
   "--sudo", Arg.Set sudo, " Switch to root for installs";
@@ -70,14 +72,14 @@ let cmd_line = Arg.align [
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
   "--debug", Arg.Set debug, " Debug package dependencies";
-  "--unstable", Arg.Unit (fun () -> repository := "unstable"), " Use unstable repo";
-  "--stable", Arg.Unit (fun () -> repository := "stable"), " Use stable repo";
-  "--testing", Arg.Unit (fun () -> repository := "testing"), " Use testing repo [default]";
+  "--unstable", set_ref repository "unstable", " Use unstable repo";
+  "--stable", set_ref repository "stable", " Use stable repo";
+  "--testing", set_ref repository "testing", " Use testing repo [default]";
   "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
   "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
-  "--get", Arg.Unit(fun () -> main := Get), " Only download and extract packages; don't install";
-  "--info", Arg.Unit(fun () -> main := Info), " Only print the metadata for the packages listed; don't install";
-  "--package", Arg.Unit (fun () -> main := Package), " Install all packages from package files";
+  "--get", set_ref main Get, " Only download and extract packages; don't install";
+  "--info", set_ref main Info, " Only print the metadata for the packages listed; don't install";
+  "--package", set_ref main Package, " Install all packages from package files";
 ]
 
 let () =
@@ -97,7 +99,7 @@ module Http = struct
     else (fun ~silent:_ _uri _fn ->
       failwith "neither curl nor wget was found, cannot download")
   let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
-    if !debug then printf "Getting URI: %s\n%!" uri;
+    dprintf "Getting URI: %s\n%!" uri;
     if Sys.command (dl_cmd ~silent uri fn) <> 0 then
       failwith ("failed to get " ^ uri);
     fn
@@ -162,14 +164,6 @@ let parse_package_line (fn,line) str =  (* TODO: dep foo ver x=y x2=y2...\n *)
   match Str.split (Str.regexp " +") (chomp str) with
     | h::_ when h.[0] = '#' -> None (* ignore comments *)
     | [] -> None                    (* and blank lines *)
-    | ["dep"; id; "remote-tar-gz"; url] ->
-      Hashtbl.add info_cache id ["tarball", url]; Some id
-    | ["dep"; id; "local-dir"; dir] ->
-      Hashtbl.add info_cache id ["dir", dir]; Some id
-    | ["dep"; id; "local-tar-gz"; filename] ->
-      Hashtbl.add info_cache id ["tarball", filename]; Some id
-    | ["dep"; id; "git"; url] ->
-      Hashtbl.add info_cache id ["git", url]; Some id
     | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
       Hashtbl.add info_cache id (List.map PL.split_pair tl); Some id
     | _ -> printf "W: packages file %s line %d is invalid\n" fn !line; None
@@ -186,7 +180,7 @@ let is_uri str = (String.length str > 6) && (String.sub str 0 5 = "http:" || Str
 
 let get_remote fn =
   if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
-  else (if !debug then printf "Local File %s\n" fn; fn)
+  else (dprintf "Local File %s\n" fn; fn)
 let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 
 (* run the given command and return its output as a string *)
@@ -211,8 +205,8 @@ let get_tarball_chk p = (* checks package signature if possible *)
   if PL.has_key ~p "sha1" then
     test ~hash:"sha1" ~actual:(get_command_output ("sha1sum " ^ fn) |> Str.split (Str.regexp " ") |> List.hd)
   else if PL.has_key ~p "md5" then
-    test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5"
-  else printf "Tarball %s has no hash to verify\n" fn;
+    test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
+  dprintf "Tarball %s has md5 hash %s\n" fn (Digest.file fn |> Digest.to_hex);
   fn
 
 let to_pkg id =
@@ -260,9 +254,6 @@ module Dep = struct
   type dep = pkg * (cmp * ver) option
   let comp vc = function GE -> vc >= 0 | EQ -> vc = 0 | GT -> vc > 0
   let comp_to_string = function GE -> ">=" | EQ -> "=" | GT -> ">"
-  let ver_sat ~req = function None -> false | Some ver -> match req with
-    | None -> true
-    | Some (c, vreq) -> comp (Ver.cmp ver vreq) c
   let req_to_string = function None -> ""
     | Some (c,ver) -> (comp_to_string c) ^ (Ver.to_string ver)
 
@@ -293,9 +284,12 @@ module Dep = struct
       (match installed_ver_lib p with None -> installed_ver_prog p | x -> x)
     | (true,false) -> installed_ver_lib p
     | (false,true) -> installed_ver_prog p
-  let has_dep (p,req) =
-    get_ver p |> ver_sat ~req
-    |> dtap (fun r -> printf "Package %s(%s) dependency satisfied: %B\n%!" p.id (req_to_string req) r)
+  let has_dep (p,req) = (* true iff p satisfies version requirement req*)
+    match req, get_ver p with
+    | _, None -> dprintf "Package %s not installed" p.id; false
+    | None, Some _ -> dprintf "Package %s installed" p.id; true
+    | Some (c,vreq), Some inst -> comp (Ver.cmp inst vreq) c
+      |> dtap (printf "Package %s(%s) dep satisfied: %B\n%!" p.id (req_to_string req))
   let parse_vreq vr =
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
@@ -328,7 +322,7 @@ module Dep = struct
       with End_of_file -> close_in ic; !deps
 end
 
-let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
+let extract_cmd fn =
   let suff = Fn.check_suffix fn in
   if suff ".tar.gz" || suff ".tgz" then       "tar -zxf " ^ fn
   else if suff ".tar.bz2" || suff ".tbz" then "tar -jxf " ^ fn
@@ -368,7 +362,7 @@ let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
   indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p)) ~err);
-  if !debug then printf "Extracted tarball for %s into %s\n%!" p.id idir;
+  dprintf "Extracted tarball for %s into %s\n%!" p.id idir;
   find_install_dir idir
 
 let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
@@ -405,7 +399,7 @@ let uninstall p =
 
 (* Installing a package *)
 let rec install_from_current_dir p =
-  if !debug then printf "Installing %s from %s\n" p.id (Sys.getcwd ());
+  dprintf "Installing %s from %s\n" p.id (Sys.getcwd ());
 
   let rec try_build_using buildtype =
 
@@ -428,7 +422,7 @@ let rec install_from_current_dir p =
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
     (* Do the install *)
-    if !debug then printf "Now installing with %s\n%!" (string_of_build_type buildtype);
+    dprintf "Now installing with %s\n%!" (string_of_build_type buildtype);
 
     match buildtype with
     | Oasis_bootstrap ->
