@@ -30,6 +30,11 @@ following command does this:
 
     echo $HOME/.odb/lib/stublibs | sudo tee -a `ocamlc -where`/ld.conf
 
+If you don't have write access to your `ld.conf` file, you can instead
+set the environment variable:
+
+    export CAML_LD_LIBRARY_PATH=$HOME/.odb/lib/stublibs
+
 ### Oasis-DB
 
 Odb supports installing packages uploaded to Oasis-DB.  These packages
