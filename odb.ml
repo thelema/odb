@@ -219,7 +219,11 @@ let get_tarball_chk p = (* checks package signature if possible *)
 
 let to_pkg id =
   if Sys.file_exists id || is_uri id then
-    {id=Filename.basename id; props= ["tarball",id;"cli","yes"]}
+    if Fn.check_suffix id "git" then
+      {id=Fn.basename id |> Fn.chop_extension;
+       props = ["git", id; "cli", "yes"]}
+    else
+      {id=Fn.basename id; props= ["tarball",id;"cli","yes"]}
   else
     {id = id; props = get_info id}
 
