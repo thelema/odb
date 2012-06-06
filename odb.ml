@@ -199,11 +199,19 @@ let get_command_output cmd =
 let get_tarball_chk p = (* checks package signature if possible *)
   let fn = get_tarball p in
   let test ~actual ~hash =
-    if actual <> (PL.get ~p ~n:hash) then (eprintf  "Tarball %s failed %ssum verification, aborting\n" fn hash; exit 5)
+    if actual <> (PL.get ~p ~n:hash) then
+      (eprintf  "Tarball %s failed %ssum verification, aborting\n" fn hash;
+       exit 5)
     else printf "Tarball %s passed %s check\n" fn hash
   in
   if PL.has_key ~p "sha1" then
-    test ~hash:"sha1" ~actual:(get_command_output ("sha1sum " ^ fn) |> Str.split (Str.regexp " ") |> List.hd)
+    if not (detect_exe "sha1sum") then
+      failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
+    else
+      let out = get_command_output ("sha1sum " ^ fn) in
+      match Str.split (Str.regexp " ") out with
+        | [sum; _sep; _file] -> test ~hash:"sha1" ~actual:sum
+        | _ -> failwith ("unexpected output from sha1sum: " ^ out)
   else if PL.has_key ~p "md5" then
     test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
   dprintf "Tarball %s has md5 hash %s\n" fn (Digest.file fn |> Digest.to_hex);
