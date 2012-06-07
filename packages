@@ -86,6 +86,10 @@ cil tarball=http://downloads.sourceforge.net/project/cil/cil/cil-1.4.0.tar.gz is
 
 # cryptgps
 cryptgps tarball=http://download.camlcity.org/download/cryptgps-0.2.1.tar.gz
+# to test the function get_tarball_chk
+#cryptgps tarball=http://download.camlcity.org/download/cryptgps-0.2.1.tar.gz sha1=2a958252afabded4435f06ab2e9ed39d23649823
+#cryptgps tarball=http://download.camlcity.org/download/cryptgps-0.2.1.tar.gz md5=656afb40fa681079296551b546cb02df
+#cryptgps tarball=http://download.camlcity.org/download/cryptgps-0.2.1.tar.gz gpg=/tmp/cryptgps-0.2.1.tar.gz.asc
 
 # dynamic types for ocaml (via syntax extension)
 dyntype git=git://github.com/mirage/dyntype.git
