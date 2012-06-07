@@ -187,29 +187,50 @@ let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 (* run the given command and return its output as a string *)
 let get_command_output cmd =
   let cmd_out = Unix.open_process_in cmd in
-  let buff    = Buffer.create 1024 in
-  (try
-      while true do
-        Buffer.add_string buff (input_line cmd_out);
-        Buffer.add_char   buff '\n'; (* stripped out by input_line *)
-      done;
-    with
-    | End_of_file -> ignore(Unix.close_process_in cmd_out));
-  Buffer.contents buff
+  let buff    = Buffer.create 80         in
+  let ret     =
+    (try
+       while true do
+         Buffer.add_string buff (input_line cmd_out);
+         Buffer.add_char   buff '\n'; (* stripped out by input_line *)
+       done;
+     with End_of_file -> ());
+     Unix.close_process_in cmd_out
+  in
+  let res = Buffer.contents buff in
+  match ret with
+      (* process terminated normally *)
+      Unix.WEXITED return_code -> (res, Some return_code)
+      (* process killed or stopped by a signal *)
+    | _  -> (res, None)
 
-let get_tarball_chk p = (* checks package signature if possible *)
+let get_tarball_chk p idir = (* checks package signature if possible *)
   let fn = get_tarball p in
   let test ~actual ~hash =
     if actual <> (PL.get ~p ~n:hash) then
-      (eprintf  "Tarball %s failed %ssum verification, aborting\n" fn hash;
+      (eprintf  "Tarball %s failed %s verification, aborting\n" fn hash;
        exit 5)
     else printf "Tarball %s passed %s check\n" fn hash
   in
-  if PL.has_key ~p "sha1" then
+  if PL.has_key ~p "gpg" then
+    if not (detect_exe "gpg") then
+      failwith ("gpg executable not found; cannot check signature for " ^ fn)
+    else
+      let sig_uri  = PL.get ~p ~n:"gpg" in
+      let sig_file = get_remote sig_uri in
+      let cmd      =
+        Printf.sprintf
+          "gpg --verify %s %s" sig_file (idir </> fn) in
+      printf "gpg command: %s\n" cmd; flush stdout;
+      let _, ret = get_command_output cmd in
+      match ret with
+          Some 0 -> printf "Tarball %s passed gpg check %s\n" fn sig_file
+        | _      -> test ~hash:"gpg" ~actual:"gpg check failed"
+  else if PL.has_key ~p "sha1" then
     if not (detect_exe "sha1sum") then
       failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
     else
-      let out = get_command_output ("sha1sum " ^ fn) in
+      let out, _ = get_command_output ("sha1sum " ^ fn) in
       match Str.split (Str.regexp " ") out with
         | [sum; _sep; _file] -> test ~hash:"sha1" ~actual:sum
         | _ -> failwith ("unexpected output from sha1sum: " ^ out)
@@ -374,7 +395,7 @@ let clone ~cmd act p =
 let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
-  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p)) ~err);
+  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p idir)) ~err);
   dprintf "Extracted tarball for %s into %s\n%!" p.id idir;
   find_install_dir idir
 
