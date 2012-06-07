@@ -186,15 +186,22 @@ let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
 (* run the given command and return its output as a string *)
 let get_command_output cmd =
   let cmd_out = Unix.open_process_in cmd in
-  let buff    = Buffer.create 1024 in
-  (try
-      while true do
-        Buffer.add_string buff (input_line cmd_out);
-        Buffer.add_char   buff '\n'; (* stripped out by input_line *)
-      done;
-    with
-    | End_of_file -> ignore(Unix.close_process_in cmd_out));
-  Buffer.contents buff
+  let buff    = Buffer.create 80         in
+  let ret     =
+    (try
+       while true do
+         Buffer.add_string buff (input_line cmd_out);
+         Buffer.add_char   buff '\n'; (* stripped out by input_line *)
+       done;
+     with End_of_file -> ());
+     Unix.close_process_in cmd_out
+  in
+  let res = Buffer.contents buff in
+  match ret with
+      (* process terminated normally *)
+      Unix.WEXITED return_code -> (res, Some return_code)
+      (* process killed or stopped by a signal *)
+    | _  -> (res, None)
 
 let get_tarball_chk p = (* checks package signature if possible *)
   let fn = get_tarball p in
@@ -208,10 +215,10 @@ let get_tarball_chk p = (* checks package signature if possible *)
     if not (detect_exe "gpg") then
       failwith ("gpg executable not found; cannot check signature for " ^ fn)
     else
-      let s_uri  = PL.get ~p ~n:"gpg"       in
-      let s_file = get_remote s_uri         in
-      let cmd    = "gpg --verify " ^ s_file in
-      let out    = get_command_output cmd   in
+      let s_uri   = PL.get ~p ~n:"gpg"       in
+      let s_file  = get_remote s_uri         in
+      let cmd     = "gpg --verify " ^ s_file in
+      let out, _  = get_command_output cmd   in
       (* FBR: this run gpg two times, enhance get_command_output instead *)
       printf "%s" out;
       if Sys.command cmd <> 0 then begin
@@ -221,7 +228,7 @@ let get_tarball_chk p = (* checks package signature if possible *)
     if not (detect_exe "sha1sum") then
       failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
     else
-      let out = get_command_output ("sha1sum " ^ fn) in
+      let out, _ = get_command_output ("sha1sum " ^ fn) in
       match Str.split (Str.regexp " ") out with
         | [sum; _sep; _file] -> test ~hash:"sha1" ~actual:sum
         | _ -> failwith ("unexpected output from sha1sum: " ^ out)
