@@ -200,11 +200,24 @@ let get_tarball_chk p = (* checks package signature if possible *)
   let fn = get_tarball p in
   let test ~actual ~hash =
     if actual <> (PL.get ~p ~n:hash) then
-      (eprintf  "Tarball %s failed %ssum verification, aborting\n" fn hash;
+      (eprintf  "Tarball %s failed %s verification, aborting\n" fn hash;
        exit 5)
     else printf "Tarball %s passed %s check\n" fn hash
   in
-  if PL.has_key ~p "sha1" then
+  if PL.has_key ~p "gpg" then
+    if not (detect_exe "gpg") then
+      failwith ("gpg executable not found; cannot check signature for " ^ fn)
+    else
+      let s_uri  = PL.get ~p ~n:"gpg"       in
+      let s_file = get_remote s_uri         in
+      let cmd    = "gpg --verify " ^ s_file in
+      let out    = get_command_output cmd   in
+      (* FBR: this run gpg two times, enhance get_command_output instead *)
+      printf "%s" out;
+      if Sys.command cmd <> 0 then begin
+        test ~hash:"gpg" ~actual:"gpg check failed"
+      end else printf "Tarball %s passed gpg check %s\n" fn s_file
+  else if PL.has_key ~p "sha1" then
     if not (detect_exe "sha1sum") then
       failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
     else
