@@ -203,7 +203,7 @@ let get_command_output cmd =
       (* process killed or stopped by a signal *)
     | _  -> (res, None)
 
-let get_tarball_chk p = (* checks package signature if possible *)
+let get_tarball_chk p idir = (* checks package signature if possible *)
   let fn = get_tarball p in
   let test ~actual ~hash =
     if actual <> (PL.get ~p ~n:hash) then
@@ -215,13 +215,15 @@ let get_tarball_chk p = (* checks package signature if possible *)
     if not (detect_exe "gpg") then
       failwith ("gpg executable not found; cannot check signature for " ^ fn)
     else
-      let s_uri    = PL.get ~p ~n:"gpg"       in
-      let s_file   = get_remote s_uri         in
-      let cmd      = "gpg --verify " ^ s_file in
-      let out, ret = get_command_output cmd   in
-      printf "%s" out;
+      let sig_uri  = PL.get ~p ~n:"gpg" in
+      let sig_file = get_remote sig_uri in
+      let cmd      =
+        Printf.sprintf
+          "gpg --verify %s %s" sig_file (idir </> fn) in
+      printf "gpg command: %s\n" cmd; flush stdout;
+      let _, ret = get_command_output cmd in
       match ret with
-          Some 0 -> printf "Tarball %s passed gpg check %s\n" fn s_file
+          Some 0 -> printf "Tarball %s passed gpg check %s\n" fn sig_file
         | _      -> test ~hash:"gpg" ~actual:"gpg check failed"
   else if PL.has_key ~p "sha1" then
     if not (detect_exe "sha1sum") then
@@ -388,7 +390,7 @@ let clone ~cmd act p =
 let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
-  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p)) ~err);
+  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p idir)) ~err);
   dprintf "Extracted tarball for %s into %s\n%!" p.id idir;
   find_install_dir idir
 
