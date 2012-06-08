@@ -32,6 +32,15 @@ let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
 let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
 let print_list l = List.iter (printf "%s ") l; print_newline ()
 
+let read_lines fn =
+  let ic = open_in fn in
+  let lst = ref [] in
+  try while true do
+      let line = input_line ic in
+      lst := line :: !lst
+    done; assert false
+  with End_of_file -> close_in ic; List.rev !lst
+
 (* Configurable parameters, some by command line *)
 let webroots =
   Str.split (Str.regexp "|")
@@ -310,22 +319,65 @@ module Dep = struct
         | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
         | _ -> to_pkg str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
-  let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
+  let string_to_deps s = Str.split (Str.regexp "-,") s |> List.map make_dep
       |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
   let of_oasis dir = (* reads the [dir]/_oasis file *)
     let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
-      let ic = open_in fn in
-      let deps = ref [] in
-      try while true do
-	  let line = input_line ic in
-	  match Str.bounded_split (Str.regexp_string ":") line 2 with
-	    | [("BuildDepends"|"  BuildDepends"); ds] -> (* FIXME, fragile *)
-	      deps := (string_to_deps ds) @ !deps;
-	    | _ -> ()
-	done; assert false
-      with End_of_file -> close_in ic; !deps
+      let lines = read_lines fn in
+      List.map (fun line ->
+	match Str.bounded_split (Str.regexp_string ":") line 2 with
+	| [("BuildDepends"|"  BuildDepends"); ds] -> (* FIXME, fragile *)
+	    [string_to_deps ds]
+	| _ -> []) lines |> List.concat
+
+  (* We are being very conservative here - just match all the requires, strip everything after dot *)
+  (* grepping META files is not the preffered way of getting dependencies *)
+  let require_rx = Str.regexp "requires\\(([^)]*)\\)?[ \t]*\\+?=[ \t]*\"\\([^\"]*\\)\""
+  let meta_rx = Str.regexp "META\\(\\.\\(.*\\)\\)?"
+  let meta_exclude_rx = Str.regexp "META\\(.*\\)?\\.in" (* Exclude auto-conf .in files *)
+  (* Search for META files - does not honor sym-links *)
+  let rec find_metas dir =
+    let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
+    let dirs, files = List.partition Sys.is_directory lst in
+    let is_valid_meta fn =
+      let fn = Fn.basename fn in
+      Str.string_match meta_rx fn 0
+      && not (Str.string_match meta_exclude_rx fn 0)
+    in
+    let annot_meta fn =
+      let p = Fn.dirname fn in
+      let fn' = Fn.basename fn in
+      try 
+        if Str.string_match meta_rx fn' 0 then
+          Str.matched_group 2 fn', fn
+        else p, fn
+      with Not_found -> p, fn
+    in
+    let metas = List.filter is_valid_meta files in
+    let metas = List.map annot_meta metas in
+    metas @ (List.map find_metas dirs |> List.concat)
+
+  let of_metas p dir =
+    let lst = find_metas dir in
+    let meta (p, fn) =
+      let lines = read_lines fn in
+      List.map (fun line ->
+	if Str.string_match require_rx line 0 then
+          try Str.split (Str.regexp "[ ,]") (Str.matched_group 2 line)
+          with Not_found -> []
+        else []) lines |> List.concat 
+      |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd) |> List.filter ((<>) p)
+    in
+    List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps
+end
+
+(* Micro findlib META information extraction *)
+module Meta = struct
+
+    
+
 end
 
 let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
