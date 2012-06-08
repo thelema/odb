@@ -319,9 +319,14 @@ module Dep = struct
         | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
         | _ -> to_pkg str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
-  let string_to_deps s = Str.split (Str.regexp "-,") s |> List.map make_dep
+  let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
       |> List.filter (fun (p,_) -> p.id <> "")
-  let get_deps p = PL.get ~p ~n:"deps" |> string_to_deps
+  let get_deps p = 
+    let deps = PL.get ~p ~n:"deps" in
+    if deps = "?" then [] else string_to_deps deps
+  let is_auto_dep p = 
+    let deps = PL.get ~p ~n:"deps" in
+    deps = "?"
   let of_oasis dir = (* reads the [dir]/_oasis file *)
     let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
@@ -334,19 +339,18 @@ module Dep = struct
 
   (* We are being very conservative here - just match all the requires, strip everything after dot *)
   (* grepping META files is not the preffered way of getting dependencies *)
-  let require_rx = Str.regexp "requires\\(([^)]*)\\)?[ \t]*\\+?=[ \t]*\"\\([^\"]*\\)\""
+  let require_rx = Str.regexp ".*requires\\(([^)]*)\\)?[ \t]*\\+?=[ \t]*\"\\([^\"]*\\)\".*"
   let meta_rx = Str.regexp "META\\(\\.\\(.*\\)\\)?"
-  let meta_exclude_rx = Str.regexp "META\\(.*\\)?\\.in" (* Exclude auto-conf .in files *)
+  let weird_rx = Str.regexp "__.*"      (* possibly autoconf var *)
   (* Search for META files - does not honor sym-links *)
   let rec find_metas dir =
     let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
-    let dirs, files = List.partition Sys.is_directory lst in
+    let dirs, files = List.partition 
+      (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) lst in
     (* Is it a valid META file? *)
     let is_valid_meta fn =
       let fn = Fn.basename fn in
       Str.string_match meta_rx fn 0
-      (* Exclude all the .in auto-conf files *)
-      && not (Str.string_match meta_exclude_rx fn 0)
     in
     (* Annotate META with the coresponding package name, either from the directory or suffix *)
     let annot_meta fn =
@@ -361,7 +365,6 @@ module Dep = struct
     let metas = List.filter is_valid_meta files in
     let metas = List.map annot_meta metas in
     metas @ (List.map find_metas dirs |> List.concat)
-
   let of_metas p dir =
     let lst = find_metas dir in
     let meta (p, fn) =
@@ -373,16 +376,11 @@ module Dep = struct
         else []) lines |> List.concat
       (* Consider only base packages, filter out the package we are installing to 
          handle cases where we have sub packages *)
-      |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd) |> List.filter ((<>) p)
+      |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd) 
+      |> List.filter ((<>) p)
+      |> List.filter (fun p -> not (Str.string_match weird_rx p 0))
     in
-    List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps
-end
-
-(* Micro findlib META information extraction *)
-module Meta = struct
-
-    
-
+    List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps |> List.concat
 end
 
 let extract_cmd fn = (* TODO?: check for gzip/bzip2/etc *)
@@ -462,7 +460,10 @@ let uninstall p =
 
 (* Installing a package *)
 let rec install_from_current_dir p =
-  if !debug then printf "Installing %s from %s\n" p.id (Sys.getcwd ());
+  (if !debug then printf "Installing %s from %s\n" p.id (Sys.getcwd ()));
+  let deps = if Dep.is_auto_dep p then Dep.of_metas p.id (Sys.getcwd ()) else [] in
+  List.iter (fun (p,_ as d) -> 
+    if not (Dep.has_dep d) then install_full p) deps;
 
   let rec try_build_using buildtype =
 
