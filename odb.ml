@@ -341,11 +341,14 @@ module Dep = struct
   let rec find_metas dir =
     let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
     let dirs, files = List.partition Sys.is_directory lst in
+    (* Is it a valid META file? *)
     let is_valid_meta fn =
       let fn = Fn.basename fn in
       Str.string_match meta_rx fn 0
+      (* Exclude all the .in auto-conf files *)
       && not (Str.string_match meta_exclude_rx fn 0)
     in
+    (* Annotate META with the coresponding package name, either from the directory or suffix *)
     let annot_meta fn =
       let p = Fn.dirname fn in
       let fn' = Fn.basename fn in
@@ -367,7 +370,9 @@ module Dep = struct
 	if Str.string_match require_rx line 0 then
           try Str.split (Str.regexp "[ ,]") (Str.matched_group 2 line)
           with Not_found -> []
-        else []) lines |> List.concat 
+        else []) lines |> List.concat
+      (* Consider only base packages, filter out the package we are installing to 
+         handle cases where we have sub packages *)
       |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd) |> List.filter ((<>) p)
     in
     List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps
