@@ -24,6 +24,7 @@
 ##   branch - for git sources, checks out a particular branch (TODO on others)
 ##   md5  - for tarball sources, the md5sum of the tarball as hex
 ##   sha1 - sha1sum of the tarball as hex
+##   gpg  - absolute path to a gnupg signature file or URL to download one
 
 ######################
 ## WORKING PACKAGES (tested on Ubuntu/64 w/ OCaml 3.12.1)
