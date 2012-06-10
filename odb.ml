@@ -34,12 +34,8 @@ let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String
 let print_list l = List.iter (printf "%s ") l; print_newline ()
 
 let read_lines fn =
-  let ic = open_in fn in
-  let lst = ref [] in
-  try while true do
-      let line = input_line ic in
-      lst := line :: !lst
-    done; assert false
+  let ic = open_in fn and lst = ref [] in
+  try while true do lst := input_line ic :: !lst done; assert false
   with End_of_file -> close_in ic; List.rev !lst
 
 (* Configurable parameters, some by command line *)
