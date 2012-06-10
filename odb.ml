@@ -14,7 +14,7 @@ let (|-) f g x = g (f x)
 let tap f x = f x; x
 let debug = ref false
 let dtap f x = if !debug then f x; x
-let dprintf fmt = if !debug then printf fmt else ifprintf stdout fmt
+let dprintf fmt = if !debug then printf (fmt ^^ "\n%!") else ifprintf stdout fmt
 let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
@@ -27,11 +27,11 @@ let detect_exe exe = Sys.command (todevnull ("which " ^ exe)) = 0
 let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
-let run_or ~cmd ~err =
-  dprintf "R:%s\n%!" cmd; if Sys.command cmd <> 0 then raise err
-let opt_push rlist = function None -> () | Some x -> rlist := x :: !rlist
+let run_or ~cmd ~err = dprintf "R:%s" cmd; if Sys.command cmd <> 0 then raise err
 let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
 let print_list l = List.iter (printf "%s ") l; print_newline ()
+let rec mapi f i = function [] -> [] | h::t -> (f i h) :: mapi f (i+1) t
+let rec unopt = function []->[] | Some x::t -> x::unopt t | None::t -> unopt t
 
 let read_lines fn =
   let ic = open_in fn and lst = ref [] in
@@ -104,7 +104,7 @@ module Http = struct
     else (fun ~silent:_ _uri _fn ->
       failwith "neither curl nor wget was found, cannot download")
   let get_fn ?(silent=true) uri ?(fn=Fn.basename uri) () =
-    dprintf "Getting URI: %s\n%!" uri;
+    dprintf "Getting URI: %s" uri;
     if Sys.command (dl_cmd ~silent uri fn) <> 0 then
       failwith ("failed to get " ^ uri);
     fn
@@ -165,29 +165,26 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
-let parse_package_line (fn,line) str =  (* TODO: dep foo ver x=y x2=y2...\n *)
+let parse_package_line fn line str =  (* TODO: dep foo ver x=y x2=y2...\n *)
   match Str.split (Str.regexp " +") (chomp str) with
     | h::_ when h.[0] = '#' -> None (* ignore comments *)
     | [] -> None                    (* and blank lines *)
     | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
       Hashtbl.add info_cache id (List.map PL.split_pair tl); Some id
-    | _ -> printf "W: packages file %s line %d is invalid\n" fn !line; None
+    | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
-let parse_package_file fn = if not (Sys.file_exists fn) then [] else
-  let ic = open_in fn in let line = ref 0 in let packages = ref [] in
-  try while true do incr line;
-    opt_push packages (parse_package_line (fn,line) (input_line ic))
-    done; assert false (* loop ends by End_of_file *)
-  with End_of_file ->
-    printf "%d packages loaded from %s\n" (List.length !packages) fn; !packages
+let parse_package_file fn =
+  if not (Sys.file_exists fn) then [] else
+  let packages = read_lines fn |> mapi (parse_package_line fn) 1 |> unopt in
+  printf "%d packages loaded from %s\n" (List.length packages) fn; packages
 
 let is_uri str =
   Str.string_match (Str.regexp "^\\(http\\|ftp\\|https\\):") str 0
 
 let get_remote fn =
   if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
-  else (dprintf "Local File %s\n" fn; fn)
-let get_tarball p = (PL.get ~p ~n:"tarball") |> get_remote
+  else if Fn.is_relative fn then failwith "non-absolute filename not allowed"
+  else (dprintf "Local File %s" fn; fn)
 
 (* run the given command and return its output as a string *)
 let get_command_output cmd =
@@ -210,7 +207,7 @@ let get_command_output cmd =
     | _  -> (res, None)
 
 let get_tarball_chk p idir = (* checks package signature if possible *)
-  let fn = get_tarball p in
+  let fn = (PL.get ~p ~n:"tarball") |> get_remote in
   let test ~actual ~hash =
     if actual <> (PL.get ~p ~n:hash) then
       (eprintf  "Tarball %s failed %s verification, aborting\n" fn hash;
@@ -241,7 +238,7 @@ let get_tarball_chk p idir = (* checks package signature if possible *)
         | _ -> failwith ("unexpected output from sha1sum: " ^ out)
   else if PL.has_key ~p "md5" then
     test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
-  dprintf "Tarball %s has md5 hash %s\n" fn (Digest.file fn |> Digest.to_hex);
+  dprintf "Tarball %s has md5 hash %s" fn (Digest.file fn |> Digest.to_hex);
   fn
 
 let to_pkg id =
@@ -444,7 +441,7 @@ let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
   indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p idir)) ~err);
-  dprintf "Extracted tarball for %s into %s\n%!" p.id idir;
+  dprintf "Extracted tarball for %s into %s" p.id idir;
   find_install_dir idir
 
 let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
@@ -481,7 +478,7 @@ let uninstall p =
 
 (* Installing a package *)
 let rec install_from_current_dir p =
-  dprintf "Installing %s from %s\n" p.id (Sys.getcwd ());
+  dprintf "Installing %s from %s" p.id (Sys.getcwd ());
   let deps = if Dep.is_auto_dep p then Dep.of_metas p.id (Sys.getcwd ()) else [] in
   List.iter (fun (p,_ as d) ->
     if not (Dep.has_dep d) then install_full p) deps;
@@ -507,7 +504,7 @@ let rec install_from_current_dir p =
     let install_fail = Failure ("Could not install package " ^ p.id) in
 
     (* Do the install *)
-    dprintf "Now installing with %s\n%!" (string_of_build_type buildtype);
+    dprintf "Now installing with %s" (string_of_build_type buildtype);
 
     match buildtype with
     | Oasis_bootstrap ->
