@@ -148,6 +148,7 @@ end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 let prefix_webroot webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn
+let prefix_webroot_backup wr fn = wr ^ !repository ^ "/pkg/backup/" ^ fn
 
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
@@ -160,6 +161,7 @@ let get_info id = (* gets a package's info from the repo *)
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
             (* prefix the tarball location by the server address *)
             |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
+            |> PL.modify_assoc ~n:"tarball2" (prefix_webroot_backup webroot)
             |> tap (Hashtbl.add info_cache id)
         with Failure _ -> find_uri tl
     in
