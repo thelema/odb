@@ -159,9 +159,15 @@ let get_info id = (* gets a package's info from the repo *)
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
+            (* create backup tarball location *)
+            |> (fun pl ->
+                  try
+		    let tarball = List.assoc "tarball" pl in
+		    let backup_addr = prefix_webroot_backup webroot tarball in
+		    ("tarball2", backup_addr) :: pl
+		  with Not_found -> pl)
             (* prefix the tarball location by the server address *)
             |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
-            |> PL.modify_assoc ~n:"tarball2" (prefix_webroot_backup webroot)
             |> tap (Hashtbl.add info_cache id)
         with Failure _ -> find_uri tl
     in
@@ -208,40 +214,64 @@ let get_command_output cmd =
       (* process killed or stopped by a signal *)
     | _  -> (res, None)
 
-let get_tarball_chk p idir = (* checks package signature if possible *)
-  let fn = (PL.get ~p ~n:"tarball") |> get_remote in
-  let test ~actual ~hash =
-    if actual <> (PL.get ~p ~n:hash) then
-      (eprintf  "Tarball %s failed %s verification, aborting\n" fn hash;
-       exit 5)
-    else printf "Tarball %s passed %s check\n" fn hash
+(* [get_tarball_check p idir] fetches the tarball associated to the
+   package described by property list [p] in directory [idir]. The
+   format of the tarball is checked, as well as its integrity if some
+   hash information is provided in [p]*)
+let get_tarball_chk p idir =
+  let attempt url =
+    let fn = get_remote url in
+    let hash_chk ~actual ~hash =
+      if actual <> (PL.get ~p ~n:hash) then
+	failwith (sprintf "Tarball %s failed %s verification, aborting\n" fn hash)
+      else printf "Tarball %s passed %s check\n" fn hash
+    in
+    let test_signature () =
+      if PL.has_key ~p "gpg" then
+	if not (detect_exe "gpg") then
+	  failwith ("gpg executable not found; cannot check signature for " ^ fn)
+	else
+	  let sig_uri  = PL.get ~p ~n:"gpg" in
+	  let sig_file = get_remote sig_uri in
+	  let cmd      =
+            Printf.sprintf
+              "gpg --verify %s %s" sig_file (idir </> fn) in
+	  printf "gpg command: %s\n" cmd; flush stdout;
+	  let _, ret = get_command_output cmd in
+	  match ret with
+              Some 0 -> printf "Tarball %s passed gpg check %s\n" fn sig_file
+            | _      -> hash_chk ~hash:"gpg" ~actual:"gpg check failed"
+      else if PL.has_key ~p "sha1" then
+	if not (detect_exe "sha1sum") then
+	  failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
+	else
+	  let out, _ = get_command_output ("sha1sum " ^ fn) in
+	  match Str.split (Str.regexp " ") out with
+            | [sum; _sep; _file] -> hash_chk ~hash:"sha1" ~actual:sum
+            | _ -> failwith ("unexpected output from sha1sum: " ^ out)
+      else if PL.has_key ~p "md5" then
+	hash_chk ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
+      dprintf "Tarball %s has md5 hash %s" fn (Digest.file fn |> Digest.to_hex)
+    in
+    (* checks that the downloaded file is a known archive type *)
+    let test_file_type () =
+      let known_types = ["application/x-gzip" ; "application/zip" ; "application/x-bzip2"] in
+      let cmd         = "file -b --mime-type " ^ fn in
+      let output      = get_command_output cmd |> fst |> Str.split (Str.regexp "\n") |> List.hd in
+      if not (List.mem output known_types)
+      then (failwith "The format of the downloaded archive is not handled\n")
+    in
+    test_file_type () ;
+    test_signature () ;
+    fn
   in
-  if PL.has_key ~p "gpg" then
-    if not (detect_exe "gpg") then
-      failwith ("gpg executable not found; cannot check signature for " ^ fn)
-    else
-      let sig_uri  = PL.get ~p ~n:"gpg" in
-      let sig_file = get_remote sig_uri in
-      let cmd      =
-        Printf.sprintf
-          "gpg --verify %s %s" sig_file (idir </> fn) in
-      printf "gpg command: %s\n" cmd; flush stdout;
-      let _, ret = get_command_output cmd in
-      match ret with
-          Some 0 -> printf "Tarball %s passed gpg check %s\n" fn sig_file
-        | _      -> test ~hash:"gpg" ~actual:"gpg check failed"
-  else if PL.has_key ~p "sha1" then
-    if not (detect_exe "sha1sum") then
-      failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
-    else
-      let out, _ = get_command_output ("sha1sum " ^ fn) in
-      match Str.split (Str.regexp " ") out with
-        | [sum; _sep; _file] -> test ~hash:"sha1" ~actual:sum
-        | _ -> failwith ("unexpected output from sha1sum: " ^ out)
-  else if PL.has_key ~p "md5" then
-    test ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
-  dprintf "Tarball %s has md5 hash %s" fn (Digest.file fn |> Digest.to_hex);
-  fn
+  try attempt (PL.get ~p ~n:"tarball")
+  with Failure s -> (
+    printf "First attempt to download the package failed with the following error:\n" ;
+    printf "==> %s\nTrying with backup location\n" s ;
+    attempt (PL.get ~p ~n:"tarball2")
+  )
+
 
 let to_pkg id =
   if Sys.file_exists id || is_uri id then
