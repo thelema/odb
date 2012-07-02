@@ -274,13 +274,18 @@ let get_tarball_chk p idir =
 
 
 let to_pkg id =
-  if Sys.file_exists id || is_uri id then
-    if Fn.check_suffix id "git" then
+  if is_uri id then (* remote URL *)
+    if Fn.check_suffix id "git" then (* is git clone URI *)
       {id=Fn.basename id |> Fn.chop_extension;
        props = ["git", id; "cli", "yes"]}
-    else
+    else (* otherwise assume is remote tarball *)
       {id=Fn.basename id; props= ["tarball",id;"cli","yes"]}
-  else
+  else if Sys.file_exists id then
+    if Sys.is_directory id then (* is local directory *)
+      {id=Fn.basename id; props= ["dir", id; "cli", "yes"]}
+    else (* is local larball *)
+      {id=Fn.basename id; props= ["tarball",id;"cli","yes"]}
+  else (* is remote file *)
     {id = id; props = get_info id}
 
 (* Version number handling *)
