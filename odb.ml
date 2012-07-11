@@ -257,7 +257,7 @@ let get_tarball_chk p idir =
     let test_file_type () =
       let known_types = ["application/x-gzip" ; "application/zip" ; "application/x-bzip2"] in
       let cmd         = "file -b --mime " ^ fn in
-      let output      = get_command_output cmd |> fst |> Str.split (Str.regexp "\n") |> List.hd |> Str.split (Str.regexp ";") |> List.hd in
+      let output      = get_command_output cmd |> fst |> Str.split (Str.regexp "\n\\|;") |> List.hd in
       if not (List.mem output known_types)
       then (failwith ("The format of the downloaded archive is not handled: " ^ output))
     in
