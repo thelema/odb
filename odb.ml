@@ -165,7 +165,7 @@ let make_install_type pl =
   if List.mem_assoc "inst_type" pl then pl else
 	match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
 	| Some "true", _ -> ("inst_type", "lib")::pl
-	| _, Some "true" -> ("inst_type", "app")::pl
+	| _, Some "true" -> ("isnst_type", "app")::pl
 	| _ -> pl
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
@@ -190,7 +190,7 @@ let parse_package_line fn line str =  (* TODO: dep foo ver x=y x2=y2...\n *)
     | h::_ when h.[0] = '#' -> None (* ignore comments *)
     | [] -> None                    (* and blank lines *)
     | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
-      Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_pkgtype);
+      Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_install_type);
 	  Some id
     | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
