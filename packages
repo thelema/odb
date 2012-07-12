@@ -13,8 +13,7 @@
 ##   hg, darcs, svn - as git
 ##   cvs, cvspath - CVSROOT and path within root to checkout (both needed)
 ## Optional keys
-##   is_library - does this package install a findlib package. "true"/"false"
-##   is_program - does this package install an executable. "true"/"false"
+##   inst_type - one of "app", "lib", "clib"; used to detect installed version
 ##   deps - what other packages this package depends on.  Comma separated
 ##          list of package names, with optional version requirement in ().
 ##          Supported comparators are =, >, and >=.  Version ordering is
@@ -25,6 +24,9 @@
 ##   md5  - for tarball sources, the md5sum of the tarball as hex
 ##   sha1 - sha1sum of the tarball as hex
 ##   gpg  - absolute path to a gnupg signature file or URL to download one
+## Deprecated
+##   is_library - does this package install a findlib package. "true"/"false"
+##   is_program - does this package install an executable. "true"/"false"
 
 ######################
 ## WORKING PACKAGES (tested on Ubuntu/64 w/ OCaml 3.12.1)

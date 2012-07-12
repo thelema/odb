@@ -17,13 +17,15 @@ let dtap f x = if !debug then f x; x
 let dprintf fmt = if !debug then printf (fmt ^^ "\n%!") else ifprintf stdout fmt
 let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
+let de_exn f x = try Some (f x) with _ -> None
+let de_exn2 f x y = try Some (f x y) with _ -> None
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
 let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
 let todevnull ?err cmd =
   let err = match err with Some () -> "2" | None -> "" in
   if Sys.os_type = "Win32" then cmd ^ " >NUL" else cmd ^ " " ^ err ^ "> /dev/null"
-let detect_exe exe = Sys.command (todevnull ("which " ^ exe)) = 0
+let detect_exe exe = Sys.command (todevnull ("which \"" ^ exe ^ "\"")) = 0
 let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
@@ -37,6 +39,10 @@ let read_lines fn =
   let ic = open_in fn and lst = ref [] in
   try while true do lst := input_line ic :: !lst done; assert false
   with End_of_file -> close_in ic; List.rev !lst
+let first_line_output cmd =
+  let ic = Unix.open_process_in cmd in
+  try let line = input_line ic in ignore(Unix.close_process_in ic); line
+  with End_of_file -> ""
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -143,13 +149,24 @@ module PL = struct
     (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
   let has_key ~p k0 = List.mem_assoc k0 p.props
   let print p =
-    printf "%s " p.id; List.iter (fun (k,v) -> printf "%s=%s " k v) p.props; printf "\n"
+    printf "%s\n" p.id; List.iter (fun (k,v) -> printf "%s=%s\n" k v) p.props; printf "\n"
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
 let prefix_webroot webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn
 let prefix_webroot_backup wr fn = wr ^ !repository ^ "/pkg/backup/" ^ fn
 
+let make_backup_dl webroot pl = (* create backup tarball location *)
+  try let tarball = List.assoc "tarball" pl in
+	  let backup_addr = prefix_webroot_backup webroot tarball in
+	  ("tarball2", backup_addr) :: pl
+  with Not_found -> pl
+let make_install_type pl =
+  if List.mem_assoc "inst_type" pl then pl else
+	match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
+	| Some "true", _ -> ("inst_type", "lib")::pl
+	| _, Some "true" -> ("inst_type", "app")::pl
+	| _ -> pl
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
 let get_info id = (* gets a package's info from the repo *)
@@ -159,13 +176,8 @@ let get_info id = (* gets a package's info from the repo *)
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
         try deps_uri id webroot |> Http.get_contents |> PL.of_string
-            (* create backup tarball location *)
-            |> (fun pl ->
-                  try
-		    let tarball = List.assoc "tarball" pl in
-		    let backup_addr = prefix_webroot_backup webroot tarball in
-		    ("tarball2", backup_addr) :: pl
-		  with Not_found -> pl)
+            |> make_backup_dl webroot
+			|> make_install_type
             (* prefix the tarball location by the server address *)
             |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
             |> tap (Hashtbl.add info_cache id)
@@ -178,7 +190,8 @@ let parse_package_line fn line str =  (* TODO: dep foo ver x=y x2=y2...\n *)
     | h::_ when h.[0] = '#' -> None (* ignore comments *)
     | [] -> None                    (* and blank lines *)
     | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
-      Hashtbl.add info_cache id (List.map PL.split_pair tl); Some id
+      Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_pkgtype);
+	  Some id
     | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
 let parse_package_file fn =
@@ -194,26 +207,6 @@ let get_remote fn =
   else if Fn.is_relative fn then failwith "non-absolute filename not allowed"
   else (dprintf "Local File %s" fn; fn)
 
-(* run the given command and return its output as a string *)
-let get_command_output cmd =
-  let cmd_out = Unix.open_process_in cmd in
-  let buff    = Buffer.create 80         in
-  let ret     =
-    (try
-       while true do
-         Buffer.add_string buff (input_line cmd_out);
-         Buffer.add_char   buff '\n'; (* stripped out by input_line *)
-       done;
-     with End_of_file -> ());
-     Unix.close_process_in cmd_out
-  in
-  let res = Buffer.contents buff in
-  match ret with
-      (* process terminated normally *)
-      Unix.WEXITED return_code -> (res, Some return_code)
-      (* process killed or stopped by a signal *)
-    | _  -> (res, None)
-
 (* [get_tarball_check p idir] fetches the tarball associated to the
    package described by property list [p] in directory [idir]. The
    format of the tarball is checked, as well as its integrity if some
@@ -226,44 +219,37 @@ let get_tarball_chk p idir =
 	failwith (sprintf "Tarball %s failed %s verification, aborting\n" fn hash)
       else printf "Tarball %s passed %s check\n" fn hash
     in
-    let test_signature () =
-      if PL.has_key ~p "gpg" then
-	if not (detect_exe "gpg") then
-	  failwith ("gpg executable not found; cannot check signature for " ^ fn)
-	else
-	  let sig_uri  = PL.get ~p ~n:"gpg" in
-	  let sig_file = get_remote sig_uri in
-	  let cmd      =
-            Printf.sprintf
-              "gpg --verify %s %s" sig_file (idir </> fn) in
-	  printf "gpg command: %s\n" cmd; flush stdout;
-	  let _, ret = get_command_output cmd in
-	  match ret with
-              Some 0 -> printf "Tarball %s passed gpg check %s\n" fn sig_file
-            | _      -> hash_chk ~hash:"gpg" ~actual:"gpg check failed"
-      else if PL.has_key ~p "sha1" then
-	if not (detect_exe "sha1sum") then
-	  failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
-	else
-	  let out, _ = get_command_output ("sha1sum " ^ fn) in
-	  match Str.split (Str.regexp " ") out with
-            | [sum; _sep; _file] -> hash_chk ~hash:"sha1" ~actual:sum
-            | _ -> failwith ("unexpected output from sha1sum: " ^ out)
-      else if PL.has_key ~p "md5" then
-	hash_chk ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
-      dprintf "Tarball %s has md5 hash %s" fn (Digest.file fn |> Digest.to_hex)
-    in
     (* checks that the downloaded file is a known archive type *)
-    let test_file_type () =
-      let known_types = ["application/x-gzip" ; "application/zip" ; "application/x-bzip2"] in
-      let output, _ = get_command_output ("file -b --mime " ^ fn) in
-      match Str.split (Str.regexp "\n\\|;") output with
-	  | mime::_ when List.mem mime known_types -> ()
-	  | _ -> failwith ("The format of the downloaded archive is not handled: " ^ output)
-    in
-    test_file_type () ;
-    test_signature () ;
-    fn
+    let known_types = ["application/x-gzip" ; "application/zip" ; "application/x-bzip2"] in
+    let output = first_line_output ("file -b --mime " ^ fn) in
+    ( match Str.split (Str.regexp ";") output with
+	| mime::_ when List.mem mime known_types -> ()
+	| _ -> failwith ("The format of the downloaded archive is not handled: " ^ output) );
+	(* Check the package signature or hash *)
+    if PL.has_key ~p "gpg" then
+	  if not (detect_exe "gpg") then
+		failwith ("gpg executable not found; cannot check signature for " ^ fn)
+	  else
+		let sig_uri  = PL.get ~p ~n:"gpg" in
+		let sig_file = get_remote sig_uri in
+		let cmd = Printf.sprintf "gpg --verify %s %s" sig_file (idir </> fn) in
+		printf "gpg command: %s\n%!" cmd;
+		if Sys.command cmd == 0 then
+		  printf "Tarball %s passed gpg check %s\n" fn sig_file
+		else hash_chk ~hash:"gpg" ~actual:"gpg check failed"
+    else if PL.has_key ~p "sha1" then
+	  if not (detect_exe "sha1sum") then
+		failwith ("sha1sum executable not found; cannot check sum for " ^ fn)
+	  else
+		let out = first_line_output ("sha1sum " ^ fn) in
+		match Str.split (Str.regexp " ") out with
+        | [sum; _sep; _file] -> hash_chk ~hash:"sha1" ~actual:sum
+        | _ -> failwith ("unexpected output from sha1sum: " ^ out)
+    else if PL.has_key ~p "md5" then
+	  hash_chk ~actual:(Digest.file fn |> Digest.to_hex) ~hash:"md5";
+    dprintf "Tarball %s has md5 hash %s" fn (Digest.file fn |> Digest.to_hex);
+
+	fn
   in
   try attempt (PL.get ~p ~n:"tarball")
   with Failure s -> (
@@ -308,14 +294,12 @@ module Ver = struct
     | (Str x::_), (Str y::_) -> compare (x:string) y
     | (Num x::_), (Str y::_) -> -1 (* a number is always before a string *)
     | (Str x::_), (Num y::_) -> 1  (* a string is always after a number *)
-
   let to_ver = function
     | Str.Delim s -> Str s
     | Str.Text s -> Num (int_of_string s)
   let parse_ver v =
     try Str.full_split (Str.regexp "[^0-9]+") v |> List.map to_ver
-    with Failure _ -> failwith ("Could not parse version: " ^ v)
-
+    with Failure _ -> eprintf "Could not parse version: %s" v; []
   let comp_to_string = function Str s -> s | Num n -> string_of_int n
   let to_string v = List.map comp_to_string v |> String.concat ""
 end
@@ -338,25 +322,22 @@ module Dep = struct
 	                    || String.sub r 0 p_id_len <> p.id)
     with Findlib.No_such_package _ ->
       []
-  let installed_ver_lib p =
-    try Some (Findlib.package_property [] p.id "version" |> parse_ver)
-    with Findlib.No_such_package _ -> None
-  let installed_ver_prog p =
-    if Sys.command (todevnull ("which \"" ^ p.id ^ "\"")) <> 0 then None
-    else
-      try
-        let ic = Unix.open_process_in p.id in
-        let ver_string = input_line ic in
-        ignore(Unix.close_process_in ic);
-        Some (parse_ver ver_string)
-      with _ -> Some [] (* unknown ver *)
   let get_ver p =
-    match (PL.get_b p "is_library",
-           PL.get_b p "is_program") with
-    | (true,true) | (false,false) ->
-      (match installed_ver_lib p with None -> installed_ver_prog p | x -> x)
-    | (true,false) -> installed_ver_lib p
-    | (false,true) -> installed_ver_prog p
+    match PL.get p "inst_type" with
+    | "lib" ->
+      ( try Some (Findlib.package_property [] p.id "version" |> parse_ver)
+		with Findlib.No_such_package _ -> None )
+	| "app" ->
+      if detect_exe p.id then Some (parse_ver (first_line_output p.id)) else None
+	| "clib" ->
+	  ( try Some (parse_ver (first_line_output ("pkg-config --modversion " ^ p.id)))
+		with _ -> None )
+	| "" | _ ->
+	  ( try Some (Findlib.package_property [] p.id "version" |> parse_ver)
+		with Findlib.No_such_package _ ->
+		  if not (detect_exe p.id) then None
+		  else Some (parse_ver (first_line_output p.id)) )
+
   let has_dep (p,req) = (* true iff p satisfies version requirement req*)
     match req, get_ver p with
     | _, None -> dprintf "Package %s not installed" p.id; false
@@ -402,11 +383,7 @@ module Dep = struct
     let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
     let dirs, files = List.partition
       (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) lst in
-    (* Is it a valid META file? *)
-    let is_valid_meta fn =
-      let fn = Fn.basename fn in
-      Str.string_match meta_rx fn 0
-    in
+    let is_valid_meta fn = Str.string_match meta_rx (Fn.basename fn) 0 in
     (* Annotate META with the coresponding package name, either from the directory or suffix *)
     let annot_meta fn =
       let p = Fn.dirname fn in
@@ -608,7 +585,7 @@ let rec install_from_current_dir p =
 
 and install_package p =
   (* uninstall forced libraries *)
-  if (Dep.get_ver p) <> None && (PL.get_b p "is_library" || not (PL.get_b p "is_program")) then
+  if (Dep.get_ver p <> None) && (PL.get p "inst_type" == "lib") then
     uninstall p;
   indir (get_package p) (fun () -> install_from_current_dir p)
 
