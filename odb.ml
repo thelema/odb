@@ -21,7 +21,21 @@ let de_exn f x = try Some (f x) with _ -> None
 let de_exn2 f x y = try Some (f x y) with _ -> None
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
-let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
+let getenv v =
+  try Sys.getenv v
+  with Not_found -> failwith ("undefined environment variable: " ^ v)
+let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
+let expand_tilde_slash p =
+  if starts_with p "~/" then
+    let home_dir = getenv "HOME" in
+    Str.replace_first (Str.regexp "^~") home_dir p
+  else p
+let indir d f =
+  let here = Sys.getcwd () in
+  Sys.chdir (expand_tilde_slash d);
+  let res = f () in
+  Sys.chdir here;
+  res
 let todevnull ?err cmd =
   let err = match err with Some () -> "2" | None -> "" in
   if Sys.os_type = "Win32" then cmd ^ " >NUL" else cmd ^ " " ^ err ^ "> /dev/null"
