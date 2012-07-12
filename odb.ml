@@ -23,10 +23,11 @@ let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
 let expand_path p =
   failwith "not implemented yet"
 let indir d f =
-  let l = Sys.getcwd () in
-  expand_path d |> Sys.chdir;
-  let r = f() in Sys.chdir l;
-  r
+  let here = Sys.getcwd () in
+  Sys.chdir (expand_path d);
+  let res = f () in
+  Sys.chdir here;
+  res
 let todevnull ?err cmd =
   let err = match err with Some () -> "2" | None -> "" in
   if Sys.os_type = "Win32" then cmd ^ " >NUL" else cmd ^ " " ^ err ^ "> /dev/null"
