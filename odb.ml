@@ -23,14 +23,14 @@ let getenv v =
   try Sys.getenv v
   with Not_found -> failwith ("undefined environment variable: " ^ v)
 let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
-let expand_path p =
-  if starts_with p "~" then
+let expand_tilde_slash p =
+  if starts_with p "~/" then
     let home_dir = getenv "HOME" in
-    failwith "not implemented yet" (* FBR: replace ^~ with home_dir *)
+    Str.replace_first (Str.regexp "^~") home_dir p
   else p
 let indir d f =
   let here = Sys.getcwd () in
-  Sys.chdir (expand_path d);
+  Sys.chdir (expand_tilde_slash d);
   let res = f () in
   Sys.chdir here;
   res
