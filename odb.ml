@@ -19,7 +19,14 @@ let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
-let indir d f = let l=Sys.getcwd () in Sys.chdir d; let r=f() in Sys.chdir l; r
+let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
+let expand_path p =
+  failwith "not implemented yet"
+let indir d f =
+  let l = Sys.getcwd () in
+  expand_path d |> Sys.chdir;
+  let r = f() in Sys.chdir l;
+  r
 let todevnull ?err cmd =
   let err = match err with Some () -> "2" | None -> "" in
   if Sys.os_type = "Win32" then cmd ^ " >NUL" else cmd ^ " " ^ err ^ "> /dev/null"
