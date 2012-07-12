@@ -39,17 +39,21 @@ let read_lines fn =
   with End_of_file -> close_in ic; List.rev !lst
 
 (* Useful types *)
-module StringSet = Set.Make(
-  struct
-    type t = string
-    let compare = Pervasives.compare
-  end)
-let string_set_of_list l =
-  List.fold_left
-    (fun s e -> StringSet.add e s)
-    StringSet.empty l
-let print_string_set s =
-  StringSet.iter (printf "%s ") s; print_newline ()
+module StringSet = Set.Make (* define basic type *)
+  (struct
+     type t = string
+     let compare = Pervasives.compare
+   end)
+module StringSet = struct (* extend type with more operations *)
+  include StringSet
+  let of_list l =
+    List.fold_left
+      (fun s e -> StringSet.add e s)
+      StringSet.empty l
+  let print s =
+    StringSet.iter (printf "%s ") s;
+    print_newline ()
+end;;
 
 (* Configurable parameters, some by command line *)
 let webroots =
@@ -648,7 +652,7 @@ and install_full ?(root=false) p =
         let reqs_imm =
           install_package p |>
               (List.filter (fun s -> not (String.contains s '.'))) |>
-                  string_set_of_list
+                  StringSet.of_list
         in
         if !auto_reinstall then
           StringSet.iter
@@ -669,7 +673,7 @@ let install_list pkgs =
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
     print_string "  ocaml odb.ml --force ";
-    print_string_set !reqs;
+    StringSet.print !reqs;
   )
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
