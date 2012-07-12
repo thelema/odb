@@ -19,9 +19,15 @@ let (//) x y = if x = "" then y else x
 let iff p f x = if p x then f x else x
 let mkdir d = if not (Sys.file_exists d) then Unix.mkdir d 0o755
 let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
+let getenv v =
+  try Sys.getenv v
+  with Not_found -> failwith ("undefined environment variable: " ^ v)
 let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
 let expand_path p =
-  failwith "not implemented yet"
+  if starts_with p "~" then
+    let home_dir = getenv "HOME" in
+    failwith "not implemented yet" (* FBR: replace ^~ with home_dir *)
+  else p
 let indir d f =
   let here = Sys.getcwd () in
   Sys.chdir (expand_path d);
