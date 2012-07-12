@@ -1,5 +1,5 @@
 #!/usr/bin/env ocaml
-(* Permission is granted to use and modify this program under WTFPL *)
+(* This program is in the public domain *)
 #use "topfind";;
 #require "str";;
 #require "unix";;
