@@ -47,7 +47,8 @@ unison tarball=http://www.seas.upenn.edu/~bcpierce/unison//download/releases/sta
 easy-format git=https://github.com/mjambon/easy-format is_library=true
 # Biniou - like json but better
 ## WARNING: requires root to install
-biniou tarball=http://martin.jambon.free.fr/biniou.tar.gz is_library=true install_as_root=true
+biniou git=https://github.com/mjambon/biniou/ is_library=true install_as_root=true
+yojson git=https://github.com/mjambon/yojson is_library=true install_as_root=true
 
 # atd - syntax for cross-language type definintions
 ## WARNING: requires root to install
