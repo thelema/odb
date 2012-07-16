@@ -360,8 +360,8 @@ module Dep = struct
     | "lib" ->
       ( try Some (Findlib.package_property [] p.id "version" |> parse_ver)
         with Findlib.No_such_package _ -> None )
-    | "app" ->
-      if detect_exe p.id then Some (parse_ver (first_line_output p.id)) else None
+    | "app" -> (* can't detect version number of programs reliably *)
+      if detect_exe p.id then Some [] else None
     | "clib" ->
       ( try Some (parse_ver (first_line_output ("pkg-config --modversion " ^ p.id)))
         with _ -> None )
