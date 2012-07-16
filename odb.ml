@@ -58,6 +58,23 @@ let first_line_output cmd =
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
 
+(* Useful types *)
+module StringSet = Set.Make (* define basic type *)
+  (struct
+     type t = string
+     let compare = Pervasives.compare
+   end)
+module StringSet = struct (* extend type with more operations *)
+  include StringSet
+  let of_list l =
+    List.fold_left
+      (fun s e -> StringSet.add e s)
+      StringSet.empty l
+  let print s =
+    StringSet.iter (printf "%s ") s;
+    print_newline ()
+end;;
+
 (* Configurable parameters, some by command line *)
 let webroots =
   Str.split (Str.regexp "|")
@@ -80,7 +97,8 @@ let ignore_unknown = ref false
 let base = ref (getenv_def "GODI_LOCALBASE" // getenv_def "OCAML_BASE")
 let configure_flags = ref ""
 let configure_flags_global = ref ""
-let reqs = ref [] (* what packages need to be reinstalled because of updates *)
+(* what packages need to be reinstalled because of updates *)
+let reqs = ref (StringSet.empty)
 type main_act = Install | Get | Info | Clean | Package
 let main = ref Install
 
@@ -621,24 +639,31 @@ and install_full ?(root=false) p =
       List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
       if deps <> [] then printf "Deps for %s satisfied\n%!" p.id;
       let rec install_get_reqs p =
-        let reqs_imm = install_package p |> List.filter (fun s -> not (String.contains s '.')) in
+        let reqs_imm =
+          install_package p |>
+              (List.filter (fun s -> not (String.contains s '.'))) |>
+                  StringSet.of_list
+        in
         if !auto_reinstall then
-          List.iter
-            (fun pid -> try to_pkg pid |> install_get_reqs with _ ->
-              reqs := pid :: !reqs) (* if install of req fails, print pid *)
+          StringSet.iter
+            (fun pid ->
+               try install_get_reqs (to_pkg pid)
+               with _ ->
+                 (* if install of req fails, print pid *)
+                 reqs := StringSet.add pid !reqs)
             reqs_imm
         else
-          reqs := reqs_imm @ !reqs; (* unreinstalled reqs *)
+          reqs := StringSet.union reqs_imm !reqs; (* unreinstalled reqs *)
       in
       install_get_reqs p
 
 let install_list pkgs =
   List.iter (to_pkg |- install_full ~root:true) pkgs;
-  if !reqs <> [] then (
+  if not (StringSet.is_empty !reqs) then (
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
     print_string "  ocaml odb.ml --force ";
-    print_list !reqs;
+    StringSet.print !reqs;
   )
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
