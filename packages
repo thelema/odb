@@ -48,7 +48,7 @@ easy-format git=https://github.com/mjambon/easy-format is_library=true
 # Biniou - like json but better
 ## WARNING: requires root to install
 biniou git=https://github.com/mjambon/biniou/ is_library=true install_as_root=true
-yojson git=https://github.com/mjambon/yojson is_library=true install_as_root=true deps=easy-format,biniou
+yojson git=https://github.com/mjambon/yojson is_library=true install_as_root=true deps=easy-format,biniou,cppo
 
 # atd - syntax for cross-language type definintions
 ## WARNING: requires root to install
