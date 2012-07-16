@@ -197,7 +197,7 @@ let make_install_type pl =
   if List.mem_assoc "inst_type" pl then pl else
     match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
     | Some "true", _ -> ("inst_type", "lib")::pl
-    | _, Some "true" -> ("isnst_type", "app")::pl
+    | _, Some "true" -> ("inst_type", "app")::pl
     | _ -> pl
 (* wrapper functions to get data from server *)
 let info_cache = Hashtbl.create 10
