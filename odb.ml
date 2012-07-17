@@ -578,7 +578,7 @@ let rec install_from_current_dir p =
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
       if Sys.file_exists "configure" then
-        run_or ~cmd:("sh configure" ^ config_opt) ~err:config_fail;
+        run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
       (* Autodetect 'gnumake', 'gmake' and 'make' *)
       let make =
         if detect_exe "gnumake" then "gnumake"
