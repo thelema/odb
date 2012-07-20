@@ -115,3 +115,9 @@ json-wheel tarball=http://martin.jambon.free.fr/json-wheel-1.0.6.tar.gz is_libra
 
 # fails to install, deps failure
 gapi-ocaml tarball=http://forge.ocamlcore.org/frs/download.php/787/gapi-ocaml-0.1.tar.gz deps=netclient,cryptokit,json-wheel,xmlm
+
+# tool to lookup annotations for Objective Caml source code within an editor
+# error: configure script is not standard, wants --prefix=[some_path] instead of --prefix [some_path]
+annot git=git://github.com/avsm/ocaml-annot.git is_program=true
+
+
