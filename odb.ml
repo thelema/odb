@@ -226,16 +226,33 @@ let usr_config_key = "config"
 (* TODO: dep foo ver x=y x2=y2...\n *)
 let parse_package_line fn line str =
   (* remove from the line user commands to override default ones.
-     User commands are given between braces as in the example
+     User commands are given between braces like in
      config={~/configure.sh} *)
   let str' = Str.global_replace (Str.regexp "{[^}]*}") "{}" str in
   match Str.split (Str.regexp " +") (chomp str') with
   | h::_ when h.[0] = '#' -> None (* ignore comments *)
   | [] -> None                  (* and blank lines *)
   | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
-    Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_install_type);
-    if contains str (" " ^ usr_config_key ^ "=")
-    then failwith "has a config key";
+    let props = List.map PL.split_pair tl |> make_install_type in
+    let value =
+      (* the command is between braces but may contain spaces
+         so we have to extract it properly *)
+      let to_match = " " ^ usr_config_key ^ "={" in
+      let to_match_len = String.length to_match in
+      if contains str to_match then
+        let start_i = Str.search_forward (Str.regexp to_match) str 0 in
+        let end_i = Str.search_forward (Str.regexp "}") str start_i in
+        let len = end_i - (start_i + to_match_len) in
+        let config_cmd = String.sub str (start_i + to_match_len) len in
+        (* FBR: this is List.replace_all *)
+        List.map
+          (fun ((prop_name, prop_val) as pair) ->
+             if prop_name = usr_config_key
+             then (prop_name, config_cmd)
+             else pair)
+          props
+      else props in
+    Hashtbl.add info_cache id value;
     Some id
   | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
@@ -591,10 +608,10 @@ let rec install_from_current_dir p =
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
       if PL.has_key ~p usr_config_key then
-        let package_line = failwith "not implemented yet" in
-        let config_cmd   = failwith "not implemented yet" in
-        run_or ~cmd:(config_cmd) ~err:config_fail;
-      if Sys.file_exists "configure" then
+        (* user configure command overrides default one *)
+        let config_cmd = PL.get ~p ~n:usr_config_key in
+        run_or ~cmd:config_cmd ~err:config_fail;
+      else if Sys.file_exists "configure" then
         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
       (* Autodetect 'gnumake', 'gmake' and 'make' *)
       let make =
