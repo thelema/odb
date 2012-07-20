@@ -19,6 +19,10 @@
 ##          Supported comparators are =, >, and >=.  Version ordering is
 ##          complex to describe, but should be as expected.
 ##        ex: deps=batteries(=2.0beta1),camlp4,bitstring(>=2.0.0)
+##   config - command line BETWEEN BRACES to configure the package
+##            this is only for packages using the
+##            (configure; make; make install) scheme, not for oasis or omake
+##            packages
 ##   install_as_root - forces a particular package to be installed as --sudo
 ##   branch - for git sources, checks out a particular branch (TODO on others)
 ##   md5  - for tarball sources, the md5sum of the tarball as hex
@@ -117,3 +121,6 @@ otags tarball=http://askra.de/software/otags/otags-3.12.2.tar.gz is_program=true
 qmc is_library=true deps=extlib tarball=http://forge.ocamlcore.org/frs/download.php/837/libqmc-0.9.1.2.tar.gz
 
 deriving-ocsigen git=https://github.com/hnrgrgr/deriving.git is_library=true deps=?
+
+# tool to lookup annotations for Objective Caml source code within an editor
+annot git=git://github.com/avsm/ocaml-annot.git config={./configure --prefix=~/ocamlbrew/ocaml-3.12.1}
