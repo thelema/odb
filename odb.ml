@@ -217,8 +217,13 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
-let parse_package_line fn line str =    (* TODO: dep foo ver x=y x2=y2...\n *)
-  match Str.split (Str.regexp " +") (chomp str) with
+(* TODO: dep foo ver x=y x2=y2...\n *)
+let parse_package_line fn line str =
+  (* remove from the line user commands to override default ones.
+     User commands are given between braces as in the example
+     config={~/configure.sh} *)
+  let str' = Str.global_replace (Str.regexp "{[^}]*}") "{}" str in
+  match Str.split (Str.regexp " +") (chomp str') with
   | h::_ when h.[0] = '#' -> None (* ignore comments *)
   | [] -> None                  (* and blank lines *)
   | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
@@ -523,6 +528,10 @@ let uninstall p =
   print_endline ("Uninstalling forced library " ^ p.id);
   Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
+(* some keywords handled in the packages file for user-defined actions to override
+   the default ones *)
+let usr_config_key = "config"
+
 (* Installing a package *)
 let rec install_from_current_dir p =
   dprintf "Installing %s from %s" p.id (Sys.getcwd ());
@@ -577,6 +586,9 @@ let rec install_from_current_dir p =
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
+      if PL.has_key ~p usr_config_key then
+        failwith "not implemented yet";
+        (* run_or ~cmd:(PL.get p usr_config_key) ~err:config_fail; *)
       if Sys.file_exists "configure" then
         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
       (* Autodetect 'gnumake', 'gmake' and 'make' *)
