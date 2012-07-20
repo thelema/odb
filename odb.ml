@@ -60,6 +60,15 @@ let first_line_output cmd =
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
 
+(* replace all matched elements by repl *)
+let replace_all lst match_fun repl =
+  List.map
+    (fun elt ->
+       if match_fun elt
+       then repl
+       else elt)
+    lst
+
 (* Useful types *)
 module StringSet = Set.Make(struct type t = string let compare = Pervasives.compare end)
 module StringSet = struct (* extend type with more operations *)
@@ -244,13 +253,10 @@ let parse_package_line fn line str =
         let end_i = Str.search_forward (Str.regexp "}") str start_i in
         let len = end_i - (start_i + to_match_len) in
         let config_cmd = String.sub str (start_i + to_match_len) len in
-        (* FBR: this is List.replace_all *)
-        List.map
-          (fun ((prop_name, prop_val) as pair) ->
-             if prop_name = usr_config_key
-             then (prop_name, config_cmd)
-             else pair)
+        replace_all
           props
+          (fun (prop_name,_) -> prop_name = usr_config_key)
+          (usr_config_key, config_cmd)
       else props in
     Hashtbl.add info_cache id value;
     Some id
