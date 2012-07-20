@@ -25,6 +25,8 @@ let getenv v =
   try Sys.getenv v
   with Not_found -> failwith ("undefined environment variable: " ^ v)
 let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
+let contains whole part =
+  Str.string_match (Str.regexp (".*" ^ part ^ ".*")) whole 0
 let expand_tilde_slash p =
   if starts_with p "~/" then
 	let home_dir = getenv "HOME" in
@@ -217,6 +219,10 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
+(* some keywords handled in the packages file for user-defined actions to override
+   the default ones *)
+let usr_config_key = "config"
+
 (* TODO: dep foo ver x=y x2=y2...\n *)
 let parse_package_line fn line str =
   (* remove from the line user commands to override default ones.
@@ -228,6 +234,8 @@ let parse_package_line fn line str =
   | [] -> None                  (* and blank lines *)
   | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
     Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_install_type);
+    if contains str (" " ^ usr_config_key ^ "=")
+    then failwith "has a config key";
     Some id
   | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
@@ -528,10 +536,6 @@ let uninstall p =
   print_endline ("Uninstalling forced library " ^ p.id);
   Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
-(* some keywords handled in the packages file for user-defined actions to override
-   the default ones *)
-let usr_config_key = "config"
-
 (* Installing a package *)
 let rec install_from_current_dir p =
   dprintf "Installing %s from %s" p.id (Sys.getcwd ());
@@ -587,8 +591,9 @@ let rec install_from_current_dir p =
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
       if PL.has_key ~p usr_config_key then
-        failwith "not implemented yet";
-        (* run_or ~cmd:(PL.get p usr_config_key) ~err:config_fail; *)
+        let package_line = failwith "not implemented yet" in
+        let config_cmd   = failwith "not implemented yet" in
+        run_or ~cmd:(config_cmd) ~err:config_fail;
       if Sys.file_exists "configure" then
         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
       (* Autodetect 'gnumake', 'gmake' and 'make' *)
