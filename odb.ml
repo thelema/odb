@@ -25,6 +25,8 @@ let getenv v =
   try Sys.getenv v
   with Not_found -> failwith ("undefined environment variable: " ^ v)
 let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
+let contains whole part =
+  Str.string_match (Str.regexp (".*" ^ part ^ ".*")) whole 0
 let expand_tilde_slash p =
   if starts_with p "~/" then
 	let home_dir = getenv "HOME" in
@@ -57,6 +59,15 @@ let first_line_output cmd =
   let ic = Unix.open_process_in cmd in
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
+
+(* replace all matched elements by repl *)
+let replace_all lst match_fun repl =
+  List.map
+    (fun elt ->
+       if match_fun elt
+       then repl
+       else elt)
+    lst
 
 (* Useful types *)
 module StringSet = Set.Make(struct type t = string let compare = Pervasives.compare end)
@@ -217,12 +228,37 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
-let parse_package_line fn line str =    (* TODO: dep foo ver x=y x2=y2...\n *)
-  match Str.split (Str.regexp " +") (chomp str) with
+(* some keywords handled in the packages file for user-defined actions to override
+   the default ones *)
+let usr_config_key = "config"
+
+(* TODO: dep foo ver x=y x2=y2...\n *)
+let parse_package_line fn line str =
+  (* remove from the line user commands to override default ones.
+     User commands are given between braces like in
+     config={~/configure.sh} *)
+  let str' = Str.global_replace (Str.regexp "{[^}]*}") "{}" str in
+  match Str.split (Str.regexp " +") (chomp str') with
   | h::_ when h.[0] = '#' -> None (* ignore comments *)
   | [] -> None                  (* and blank lines *)
   | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
-    Hashtbl.add info_cache id (List.map PL.split_pair tl |> make_install_type);
+    let props = List.map PL.split_pair tl |> make_install_type in
+    let value =
+      (* the command is between braces but may contain spaces
+         so we have to extract it properly *)
+      let to_match = " " ^ usr_config_key ^ "={" in
+      let to_match_len = String.length to_match in
+      if contains str to_match then
+        let start_i = Str.search_forward (Str.regexp to_match) str 0 in
+        let end_i = Str.search_forward (Str.regexp "}") str start_i in
+        let len = end_i - (start_i + to_match_len) in
+        let config_cmd = String.sub str (start_i + to_match_len) len in
+        replace_all
+          props
+          (fun (prop_name,_) -> prop_name = usr_config_key)
+          (usr_config_key, config_cmd)
+      else props in
+    Hashtbl.add info_cache id value;
     Some id
   | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
 
@@ -577,7 +613,11 @@ let rec install_from_current_dir p =
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
-      if Sys.file_exists "configure" then
+      if PL.has_key ~p usr_config_key then
+        (* user configure command overrides default one *)
+        let config_cmd = PL.get ~p ~n:usr_config_key in
+        run_or ~cmd:config_cmd ~err:config_fail;
+      else if Sys.file_exists "configure" then
         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
       (* Autodetect 'gnumake', 'gmake' and 'make' *)
       let make =
