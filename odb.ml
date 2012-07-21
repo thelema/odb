@@ -25,8 +25,13 @@ let getenv v =
   try Sys.getenv v
   with Not_found -> failwith ("undefined environment variable: " ^ v)
 let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
-let contains whole part =
-  Str.string_match (Str.regexp (".*" ^ part ^ ".*")) whole 0
+let rec str_next str off want =
+  if off >= String.length str then None
+  else if String.contains want str.[off] then Some(str.[off], off)
+  else str_next str (off+1) want
+let slice str st en = String.sub str st (en-st) (* from offset st to en-1 *)
+let split str chr = let i = String.index str chr in
+                    (slice str 0 i, slice str (i+1) (String.length str))
 let expand_tilde_slash p =
   if starts_with p "~/" then
 	let home_dir = getenv "HOME" in
@@ -46,9 +51,9 @@ let get_exe () = (* returns the full path and name of the current program *)
   Sys.argv.(0) |> iff Fn.is_relative (fun e -> Sys.getcwd () </> e)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err = dprintf "R:%s" cmd; if Sys.command cmd <> 0 then raise err
-let chomp s = let l = String.length s in if l <> 0 && s.[l-1] = '\r' then String.sub s 0 (l-1) else s
+let chomp s = let l = String.length s in if l = 0 || s.[l-1] != '\r' then s else slice s 0 (l-1)
 let print_list l = List.iter (printf "%s ") l; print_newline ()
-let rec mapi f i = function [] -> [] | h::t -> (f i h) :: mapi f (i+1) t
+let rec mapi f i = function [] -> [] | h::t -> let a=f i h in a::mapi f (i+1) t
 let rec unopt = function []->[] | Some x::t -> x::unopt t | None::t -> unopt t
 
 let read_lines fn =
@@ -60,39 +65,23 @@ let first_line_output cmd =
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
 
-(* replace all matched elements by repl *)
-let replace_all lst match_fun repl =
-  List.map
-    (fun elt ->
-       if match_fun elt
-       then repl
-       else elt)
-    lst
-
 (* Useful types *)
-module StringSet = Set.Make(struct type t = string let compare = Pervasives.compare end)
 module StringSet = struct (* extend type with more operations *)
-  include StringSet
-  let of_list l =
-	List.fold_left
-	  (fun s e -> StringSet.add e s)
-	  StringSet.empty l
-  let print s =
-	StringSet.iter (printf "%s ") s;
-	print_newline ()
+  include Set.Make(struct type t = string let compare = Pervasives.compare end)
+  let of_list l = List.fold_left (fun s e -> add e s) empty l
+  let print s =	iter (printf "%s ") s; print_newline ()
 end;;
 
 (* Configurable parameters, some by command line *)
-let webroots =
-  Str.split (Str.regexp "|")
-			(getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
+let webroots = Str.split (Str.regexp "|")
+	  (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
 (*let webroots = ["http://mutt.cse.msu.edu:8081/"] *)
 let default_base = (Sys.getenv "HOME") </> ".odb"
 let odb_home    = getenv_def ~def:default_base "ODB_INSTALL_DIR"
 let odb_lib     = getenv_def ~def:(odb_home </> "lib") "ODB_LIB_DIR"
-let odb_stubs = getenv_def ~def:(odb_lib </> "stublibs") "ODB_STUBS_DIR"
+let odb_stubs   = getenv_def ~def:(odb_lib </> "stublibs") "ODB_STUBS_DIR"
 let odb_bin     = getenv_def ~def:(odb_home </> "bin") "ODB_BIN_DIR"
-let build_dir = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
+let build_dir   = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
 let sudo = ref (Unix.geteuid () = 0) (* true if root *)
 let to_install = ref []
 let force = ref false
@@ -179,12 +168,22 @@ module PL = struct
   let get_i ~p ~n =
     try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
-  let split_pair s = match Str.bounded_split (Str.regexp " *= *") s 2 with
-    | [k;v] -> (k,v) | [k] -> (k,"")
-    | _ -> failwith ("Bad line in alist: " ^ s)
-  let of_string =
-    Str.split (Str.regexp "\n")
-    |- List.filter (fun s -> String.contains s '=') |- List.map split_pair
+  let of_string str =
+    let rec parse str acc =
+      try let key, rest = split str '=' in
+          if rest <> "" && rest.[0] = '{' then
+            try let value, rest = split rest '}' in
+                parse rest ((key, value)::acc)
+            with Not_found -> failwith "Unclosed { in property list"
+          else
+            try let value, rest = split rest ' ' in
+                parse rest ((key, value)::acc)
+            with Not_found -> (key, rest)::acc
+      with Not_found -> acc
+    in
+    let str = Str.global_replace (Str.regexp "(\r|\n| |\t)+") " " str
+            |> Str.global_replace (Str.regexp " *= *") "=" in
+    parse str []
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl =
     try let old_v = List.assoc n pl in
@@ -218,9 +217,10 @@ let get_info id = (* gets a package's info from the repo *)
     let rec find_uri = function
       | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
       | webroot :: tl ->
-        try deps_uri id webroot |> Http.get_contents |> PL.of_string
+        try deps_uri id webroot |> Http.get_contents
+            |> PL.of_string
             |> make_backup_dl webroot
-            |> make_install_type
+            |> make_install_type (* convert is_* to inst_type *)
             (* prefix the tarball location by the server address *)
             |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
             |> tap (Hashtbl.add info_cache id)
@@ -228,39 +228,20 @@ let get_info id = (* gets a package's info from the repo *)
     in
     find_uri webroots
 
-(* some keywords handled in the packages file for user-defined actions to override
-   the default ones *)
+(* some keywords handled in the packages file for user-defined actions
+   to override the default ones *)
 let usr_config_key = "config"
 
-(* TODO: dep foo ver x=y x2=y2...\n *)
-let parse_package_line fn line str =
+let parse_package_line fn linenum str =
   (* remove from the line user commands to override default ones.
      User commands are given between braces like in
      config={~/configure.sh} *)
-  let str' = Str.global_replace (Str.regexp "{[^}]*}") "{}" str in
-  match Str.split (Str.regexp " +") (chomp str') with
-  | h::_ when h.[0] = '#' -> None (* ignore comments *)
-  | [] -> None                  (* and blank lines *)
-  | id::(_::_ as tl) when List.for_all (fun s -> String.contains s '=') tl ->
-    let props = List.map PL.split_pair tl |> make_install_type in
-    let value =
-      (* the command is between braces but may contain spaces
-         so we have to extract it properly *)
-      let to_match = " " ^ usr_config_key ^ "={" in
-      let to_match_len = String.length to_match in
-      if contains str to_match then
-        let start_i = Str.search_forward (Str.regexp to_match) str 0 in
-        let end_i = Str.search_forward (Str.regexp "}") str start_i in
-        let len = end_i - (start_i + to_match_len) in
-        let config_cmd = String.sub str (start_i + to_match_len) len in
-        replace_all
-          props
-          (fun (prop_name,_) -> prop_name = usr_config_key)
-          (usr_config_key, config_cmd)
-      else props in
-    Hashtbl.add info_cache id value;
-    Some id
-  | _ -> printf "W: packages file %s line %d is invalid\n" fn line; None
+ if chomp str = "" || str.[0] = '#' then None (* comments and blank lines *)
+ else try let id, rest = split str ' ' in
+          Hashtbl.add info_cache id (PL.of_string rest);
+          Some id
+      with Failure s ->
+        printf "W: packages file %s line %d is invalid: %s\n" fn linenum s; None
 
 let parse_package_file fn =
   if not (Sys.file_exists fn) then [] else
