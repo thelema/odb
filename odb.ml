@@ -39,8 +39,10 @@ let expand_tilde_slash p =
   else p
 let indir d f =
   let here = Sys.getcwd () in
+  dprintf "Changing dirs from %s to %s\n%!" here (expand_tilde_slash d);
   Sys.chdir (expand_tilde_slash d);
   let res = f () in
+  dprintf "Returning to %s\n%!" here;
   Sys.chdir here;
   res
 let todevnull ?err cmd =
@@ -448,7 +450,7 @@ module Dep = struct
     let metas = List.filter is_valid_meta files in
     let metas = List.map annot_meta metas in
     metas @ (List.map find_metas dirs |> List.concat)
-  let of_metas p dir =
+  let of_metas p dir = (* determines dependencies based on META files *)
     let lst = find_metas dir in
     let meta (p, fn) =
       let lines = read_lines fn in
@@ -492,7 +494,7 @@ let make_install_dir pid =
   (* Set up the directory to install into *)
   let install_dir = !build_dir </> ("install-" ^ pid) in
   if Sys.file_exists install_dir then
-    Sys.command ("rm -rf " ^ install_dir) |> ignore;
+    ignore(Sys.command ("rm -rf " ^ install_dir));
   Unix.mkdir install_dir 0o700;
   install_dir
 
@@ -509,7 +511,10 @@ let extract_tarball p =
   dprintf "Extracted tarball for %s into %s" p.id idir;
   find_install_dir idir
 
-let clone_git p = clone ~cmd:("git clone --depth=1 " ^ PL.get p "git" ^ (if PL.get p "branch" <> "" then (" --branch " ^ PL.get p "branch") else "")) "clone git" p
+let clone_git p =
+  let cmd = "git clone --depth=1 " ^ PL.get p "git" in
+  let cmd = if PL.get p "branch" <> "" then cmd ^ " --branch " ^ PL.get p "branch" else cmd in
+  clone ~cmd "clone git" p
 let clone_svn p = clone ~cmd:("svn checkout " ^ PL.get p "svn") "checkout svn" p
 let clone_cvs p =
   let idir = make_install_dir p.id in
@@ -542,32 +547,33 @@ let uninstall p =
   Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
 (* Installing a package *)
-let rec install_from_current_dir p =
+let rec install_from_current_dir ~is_dep p =
   dprintf "Installing %s from %s" p.id (Sys.getcwd ());
-  let deps = if Dep.is_auto_dep p then Dep.of_metas p.id (Sys.getcwd ()) else [] in
+  let meta_deps = if Dep.is_auto_dep p then Dep.of_metas p.id (Sys.getcwd ()) else [] in
   List.iter (fun (p,_ as d) ->
-             if not (Dep.has_dep d) then install_full p) deps;
+             if not (Dep.has_dep d) then install_full ~is_dep:true p) meta_deps;
+
+  (* define exceptions to raise for errors in various steps *)
+  let oasis_fail = Failure ("Could not bootstrap from _oasis " ^ p.id)    in
+  let config_fail = Failure ("Could not configure " ^ p.id)    in
+  let build_fail = Failure ("Could not build " ^ p.id) in
+  (*  let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
+  let install_fail = Failure ("Could not install package " ^ p.id) in
+
+  (* configure installation parameters based on command-line flags *)
+  let as_root = PL.get_b p "install_as_root" || !sudo in
+  let config_opt = if as_root || !have_perms then ""
+                   else if !base <> "" then " --prefix " ^ !base
+                   else " --prefix " ^ odb_home in
+  let config_opt = config_opt ^ if not is_dep then (" " ^ !configure_flags) else "" in
+  let config_opt = config_opt ^ " " ^ !configure_flags_global in
+  let install_pre, destdir =
+    if as_root then "sudo ", ""
+    else if !have_perms || !base <> "" then "", ""
+    else "", odb_lib
+  in
 
   let rec try_build_using buildtype =
-
-    (* configure installation parameters based on command-line flags *)
-    let as_root = PL.get_b p "install_as_root" || !sudo in
-    let config_opt = if as_root || !have_perms then "" else if !base <> "" then " --prefix " ^ !base else " --prefix " ^ odb_home in
-    let config_opt = config_opt ^ if List.mem p.id !to_install then (" " ^ !configure_flags) else "" in
-    let config_opt = config_opt ^ " " ^ !configure_flags_global in
-    let install_pre, destdir =
-      if as_root then "sudo ", ""
-      else if !have_perms || !base <> "" then "", ""
-      else "", odb_lib
-    in
-
-    (* define exceptions to raise for errors in various steps *)
-    let oasis_fail = Failure ("Could not bootstrap from _oasis " ^ p.id)    in
-    let config_fail = Failure ("Could not configure " ^ p.id)    in
-    let build_fail = Failure ("Could not build " ^ p.id) in
-    (*  let test_fail = Failure ("Tests for package " ^ p.id ^ "did not complete successfully") in*)
-    let install_fail = Failure ("Could not install package " ^ p.id) in
-
     (* Do the install *)
     dprintf "Now installing with %s" (string_of_build_type buildtype);
 
@@ -575,10 +581,10 @@ let rec install_from_current_dir p =
     | Oasis_bootstrap ->
       if not (Sys.file_exists "_oasis") then failwith "_oasis file not found in package, cannot bootstrap.";
       if not (detect_exe "oasis") then (
-        printf "This package (%s) most likely needs oasis on the path." p.id;
+        printf "This package (%s) most likely needs oasis on the path.\n" p.id;
         print_endline "In general tarballs shouldn't require oasis.";
         print_endline "Trying to get oasis.";
-        install_full ~root:true (to_pkg "oasis")
+        install_full ~is_dep:false (to_pkg "oasis")
       );
       run_or ~cmd:("oasis setup") ~err:oasis_fail;
       try_build_using Oasis
@@ -638,32 +644,32 @@ let rec install_from_current_dir p =
   print_endline ("Successfully installed " ^ p.id);
   Dep.get_reqs p (* return the reqs *)
 
-and install_package p =
+and install_package ~is_dep p =
   (* uninstall forced libraries *)
   if (Dep.get_ver p <> None) && (PL.get p "inst_type" == "lib") then
     uninstall p;
-  indir (get_package p) (fun () -> install_from_current_dir p)
+  indir (get_package p) (fun () -> install_from_current_dir ~is_dep p)
 
 (* install a package and all its deps *)
-and install_full ?(root=false) p =
-  let force_me = !force_all || (root && !force) in
+and install_full ~is_dep p =
+  let force_me = !force_all || (not is_dep && !force) in
   match Dep.get_ver p with
   (* abort if old version of dependency exists and no --force-all *)
-  | Some v when not root && not !force_all ->
+  | Some v when is_dep && not !force_all ->
     printf "\nDependency %s has version %s but needs to be upgraded.\nTo allow odb to do this, use --force-all\nAborting." p.id (Ver.to_string v);
     exit 1
   (* warn if a dependency is already installed *)
   | Some v when not force_me ->
-    let cat, arg = if root then "Package", "--force" else "Dependency", "--force-all" in
+    let cat, arg = if is_dep then "Dependency", "--force-all" else "Package", "--force" in
     printf "%s %s(%s) already installed, use %s to reinstall\n" cat p.id (Ver.to_string v) arg;
   | _ ->
     printf "Installing %s\n%!" p.id;
     let deps = Dep.get_deps p in
-    List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full p) deps;
+    List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full ~is_dep:true p) deps;
     if deps <> [] then printf "Deps for %s satisfied\n%!" p.id;
     let rec install_get_reqs p =
       let reqs_imm =
-        install_package p |>
+        install_package ~is_dep p |>
           (List.filter (fun s -> not (String.contains s '.'))) |>
           StringSet.of_list
       in
@@ -681,7 +687,7 @@ and install_full ?(root=false) p =
     install_get_reqs p
 
 let install_list pkgs =
-  List.iter (to_pkg |- install_full ~root:true) pkgs;
+  List.iter (to_pkg |- install_full ~is_dep:false) pkgs;
   if not (StringSet.is_empty !reqs) then (
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
@@ -703,7 +709,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   | Clean -> Sys.command ("rm -rvf install-*") |> ignore
   | Package when !to_install = [] -> (* install everything from system packages *)
     if !force_all then
-      Hashtbl.iter (fun id p -> install_full ~root:true {id=id;props=p}) info_cache
+      Hashtbl.iter (fun id p -> install_full ~is_dep:false {id=id;props=p}) info_cache
     else
       print_string "No package file given, use --force-all to install all packages from system package files\n"
   | _ when !to_install = [] -> (* list packages to install *)
