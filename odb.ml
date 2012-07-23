@@ -184,7 +184,7 @@ module PL = struct
             with Not_found -> (key, rest)::acc
       with Not_found -> acc
     in
-    let str = Str.global_replace (Str.regexp "(\r|\n| |\t)+") " " str
+    let str = Str.global_replace (Str.regexp "[\n \t\r]+") " " str
             |> Str.global_replace (Str.regexp " *= *") "=" in
     parse str []
   let add ~p k v = p.props <- (k,v) :: p.props
@@ -193,7 +193,10 @@ module PL = struct
         (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
   let has_key ~p k0 = List.mem_assoc k0 p.props
   let print p = printf "%s\n" p.id;
-                List.iter (fun (k,v) -> printf "%s=%s\n" k v) p.props;
+                List.iter (fun (k,v) ->
+                           if (String.contains v ' ') then printf "%s={%s}\n" k v
+                           else printf "%s=%s\n" k v
+                          ) p.props;
                 printf "\n"
 end
 
