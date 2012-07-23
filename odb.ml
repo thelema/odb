@@ -173,6 +173,7 @@ module PL = struct
       try let key, rest = split str '=' in
           if rest <> "" && rest.[0] = '{' then
             try let value, rest = split rest '}' in
+                let value = String.sub value 1 (String.length value - 1) in (* remove '{' *)
                 parse rest ((key, value)::acc)
             with Not_found -> failwith "Unclosed { in property list"
           else
