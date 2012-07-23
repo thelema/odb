@@ -184,8 +184,8 @@ module PL = struct
             with Not_found -> (key, rest)::acc
       with Not_found -> acc
     in
-    let str = Str.global_replace (Str.regexp "[\n \t\r]+") " " str
-            |> Str.global_replace (Str.regexp " *= *") "=" in
+    let str = Str.global_replace (Str.regexp " *= *") "=" str
+            |> Str.global_replace (Str.regexp "[\n \t\r]+") " " in
     parse str []
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl =
