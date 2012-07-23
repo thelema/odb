@@ -184,8 +184,10 @@ module PL = struct
             with Not_found -> (key, rest)::acc
       with Not_found -> acc
     in
-    let str = Str.global_replace (Str.regexp " *= *") "=" str
-            |> Str.global_replace (Str.regexp "[\n \t\r]+") " " in
+    let str = str  (* will break files with # not at head of line *)
+              |> Str.global_replace (Str.regexp "#[^\n]*\n") ""
+              |> Str.global_replace (Str.regexp " *= *") "="
+              |> Str.global_replace (Str.regexp "[\n \t\r]+") " " in
     parse str []
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl =
