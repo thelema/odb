@@ -120,4 +120,6 @@ gapi-ocaml tarball=http://forge.ocamlcore.org/frs/download.php/787/gapi-ocaml-0.
 # error: configure script is not standard, wants --prefix=[some_path] instead of --prefix [some_path]
 annot git=git://github.com/avsm/ocaml-annot.git is_program=true
 
-
+# promising replacement for ocamlbuild
+# broken: no install target in makefile, no configure script to at least give --prefix=[some_path]
+ocp-build tarball=http://www.ocamlpro.com/pub/ocp-build.tar.gz
