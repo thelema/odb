@@ -72,7 +72,7 @@ module StringSet = struct (* extend type with more operations *)
   include Set.Make(struct type t = string let compare = Pervasives.compare end)
   let of_list l = List.fold_left (fun s e -> add e s) empty l
   let print s =	iter (printf "%s ") s; print_newline ()
-end;;
+end
 
 (* Configurable parameters, some by command line *)
 let webroots = Str.split (Str.regexp "|")
@@ -420,7 +420,7 @@ module Dep = struct
                          |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = let deps = PL.get ~p ~n:"deps" in
                    if deps = "?" then [] else string_to_deps deps
-  let is_auto_dep p = PL.get ~p ~n:"deps" = "?"
+  let is_auto_dep p = PL.get ~p ~n:"deps" = "?" || PL.get ~p ~n:"cli" = "yes"
   let of_oasis dir = (* reads the [dir]/_oasis file *)
     let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
@@ -647,7 +647,7 @@ let rec install_from_current_dir ~is_dep p =
   );
 
   print_endline ("Successfully installed " ^ p.id);
-  Dep.get_reqs p (* return the reqs *)
+  Dep.get_reqs p (* return the requirements for this package *)
 
 and install_package ~is_dep p =
   (* uninstall forced libraries *)
