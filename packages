@@ -123,4 +123,7 @@ qmc is_library=true deps=extlib tarball=http://forge.ocamlcore.org/frs/download.
 deriving-ocsigen git=https://github.com/hnrgrgr/deriving.git is_library=true deps=?
 
 # tool to lookup annotations for Objective Caml source code within an editor
-annot git=git://github.com/avsm/ocaml-annot.git config={./configure --prefix=~/ocamlbrew/ocaml-3.12.1}
+annot git=git://github.com/avsm/ocaml-annot.git config={./configure --prefix=`which ocaml | sed "s/\/bin\/ocaml$//g"`}
+
+# code coverage analysis tool
+bisect darcs=http://bisect.x9c.fr config={chmod 755 configure; ./configure -ocaml-prefix `which ocaml | sed "s/\/bin\/ocaml$//g"` -ocamlfind `which ocamlfind`}
