@@ -252,7 +252,7 @@ let parse_package_line fn linenum str =
         printf "W: packages file %s line %d is invalid: %s\n" fn linenum s; None
 
 let parse_package_file fn =
-  if not (Sys.file_exists fn) then [] else
+  if not (Sys.file_exists fn) || Sys.is_directory fn then [] else
     let packages = read_lines fn |> mapi (parse_package_line fn) 1 |> unopt in
     dprintf "%d packages loaded from %s\n" (List.length packages) fn; packages
 
