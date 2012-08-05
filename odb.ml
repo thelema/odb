@@ -410,12 +410,13 @@ module Dep = struct
     else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
   let whitespace_rx = Str.regexp "[ \t]+"
-  let make_dep str =
+  let make_dep str = (* convert a string "foo(op ver)" into a dep *)
     try
       let str = Str.global_replace whitespace_rx "" str in
+      let to_pkg_safe id = try to_pkg id with Failure _ -> {id=id; props=[]} in
       match Str.bounded_split (Str.regexp_string "(") str 2 with
-      | [pkg; vreq] -> to_pkg pkg, Some (parse_vreq vreq)
-      | _ -> to_pkg str, None
+      | [pkg; vreq] -> to_pkg_safe pkg, Some (parse_vreq vreq)
+      | _ -> to_pkg_safe str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
   let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
                          |> List.filter (fun (p,_) -> p.id <> "")
