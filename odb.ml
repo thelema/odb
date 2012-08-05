@@ -54,10 +54,10 @@ let get_exe () = (* returns the full path and name of the current program *)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err = dprintf "R:%s" cmd; if Sys.command cmd <> 0 then raise err
 let chomp s = let l = String.length s in if l = 0 || s.[l-1] != '\r' then s else slice s 0 (l-1)
-let print_list l = List.iter (printf "%s ") l; print_newline ()
+let print_list ?(pre="") l = print_string pre; List.iter (printf "%s ") l; print_newline ()
 let rec mapi f i = function [] -> [] | h::t -> let a=f i h in a::mapi f (i+1) t
 let rec unopt = function []->[] | Some x::t -> x::unopt t | None::t -> unopt t
-
+let rec unique = function []->[] | h::t when List.mem h t -> unique t | h::t -> h::unique t
 let read_lines fn =
   let ic = open_in fn and lst = ref [] in
   try while true do lst := input_line ic :: !lst done; assert false
@@ -73,6 +73,12 @@ module StringSet = struct (* extend type with more operations *)
   let of_list l = List.fold_left (fun s e -> add e s) empty l
   let print s =	iter (printf "%s ") s; print_newline ()
 end
+
+(* Autodetect 'gnumake', 'gmake' and 'make' *)
+let make = lazy(if detect_exe "gnumake" then "gnumake"
+                else if detect_exe "gmake" then "gmake"
+                else if detect_exe "make" then "make"
+                else failwith "No make executable found; cannot build")
 
 (* Configurable parameters, some by command line *)
 let webroots = Str.split (Str.regexp "|")
@@ -160,6 +166,7 @@ end
 
 (* Type of a package, with its information in a prop list *)
 type pkg = {id: string; mutable props: (string * string) list}
+let print_plist ?(pre="") l = print_string pre; List.iter (fun p -> printf "%s " p.id) l; print_newline ()
 
 (* micro property-list library *)
 module PL = struct
@@ -203,54 +210,56 @@ module PL = struct
     printf "\n"
 end
 
-let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
-let prefix_webroot webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn
-let prefix_webroot_backup wr fn = wr ^ !repository ^ "/pkg/backup/" ^ fn
 
-let make_backup_dl webroot pl = (* create backup tarball location *)
-  try let tarball = List.assoc "tarball" pl in
-      let backup_addr = prefix_webroot_backup webroot tarball in
-      ("tarball2", backup_addr) :: pl
-  with Not_found -> pl
-let make_install_type pl =
-  if List.mem_assoc "inst_type" pl then pl else
-    match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
-    | Some "true", _ -> ("inst_type", "lib")::pl
-    | _, Some "true" -> ("inst_type", "app")::pl
-    | _ -> pl
-(* wrapper functions to get data from server *)
-let info_cache = Hashtbl.create 10
-let get_info id = (* gets a package's info from the repo *)
-  try Hashtbl.find info_cache id
-  with Not_found ->
-    let rec find_uri = function
-      | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
-      | webroot :: tl ->
-        try deps_uri id webroot |> Http.get_contents
-            |> PL.of_string
-            |> make_backup_dl webroot
-            |> make_install_type (* convert is_* to inst_type *)
-            (* prefix the tarball location by the server address *)
-            |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
-            |> tap (Hashtbl.add info_cache id)
-        with Failure _ -> find_uri tl
-    in
-    find_uri webroots
+module Repo = struct (* wrapper functions to get data from server *)
+  let info_cache = Hashtbl.create 10
 
-(* some keywords handled in the packages file for user-defined actions
-   to override the default ones *)
-let usr_config_key = "config"
+  let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
+  let prefix_webroot webroot fn = webroot ^ !repository ^ "/pkg/" ^ fn
+  let prefix_webroot_backup wr fn = wr ^ !repository ^ "/pkg/backup/" ^ fn
+
+  let get_pkg_list wr =
+    try deps_uri "00list" wr |> Http.get_contents
+    with Failure _ -> printf "%s is unavailable or not a repository\n\n" wr; ""
+  let make_backup_dl webroot pl = (* create backup tarball location *)
+    try let tarball = List.assoc "tarball" pl in
+        let backup_addr = prefix_webroot_backup webroot tarball in
+        ("tarball2", backup_addr) :: pl
+    with Not_found -> pl
+  let make_install_type pl =
+    if List.mem_assoc "inst_type" pl then pl else
+      match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
+      | Some "true", _ -> ("inst_type", "lib")::pl
+      | _, Some "true" -> ("inst_type", "app")::pl
+      | _ -> pl
+
+  let get_info id = (* gets a package's info from the repo *)
+    try Hashtbl.find info_cache id
+    with Not_found ->
+      let rec find_uri = function
+        | [] -> failwith ("Package not in " ^ !repository ^" repo: " ^ id)
+        | webroot :: tl ->
+           try deps_uri id webroot |> Http.get_contents
+               |> PL.of_string
+               |> make_backup_dl webroot
+               |> make_install_type (* convert is_* to inst_type *)
+               (* prefix the tarball location by the server address *)
+               |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
+               |> tap (Hashtbl.add info_cache id)
+           with Failure _ -> find_uri tl
+      in
+      find_uri webroots
+
+  let encache {id=id;props=pl} = Hashtbl.add info_cache id pl
+  let encache_list l = List.iter encache l
+  let entries () = Hashtbl.fold (fun k v l -> {id=k;props=v}::l) info_cache []
+end
 
 let parse_package_line fn linenum str =
-  (* remove from the line user commands to override default ones.
-     User commands are given between braces like in
-     config={~/configure.sh} *)
- if chomp str = "" || str.[0] = '#' then None (* comments and blank lines *)
- else try let id, rest = split str ' ' in
-          Hashtbl.add info_cache id (PL.of_string rest);
-          Some id
-      with Failure s ->
-        printf "W: packages file %s line %d is invalid: %s\n" fn linenum s; None
+  if chomp str = "" || str.[0] = '#' then None (* comments and blank lines *)
+  else try let id, rest = split str ' ' in Some {id=id; props=PL.of_string rest}
+       with Failure s ->
+         printf "W: packages file %s line %d is invalid: %s\n" fn linenum s;None
 
 let parse_package_file fn =
   if not (Sys.file_exists fn) || Sys.is_directory fn then [] else
@@ -329,7 +338,7 @@ let to_pkg id =
     else (* is local larball *)
       {id=Fn.basename id; props= ["tarball",id;"cli","yes"]}
   else (* is remote file *)
-    {id = id; props = get_info id}
+    {id = id; props = Repo.get_info id}
 
 (* Version number handling *)
 module Ver = struct
@@ -621,26 +630,19 @@ let rec install_from_current_dir ~is_dep p =
       (* TODO: MAKE TEST *)
       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
-      if PL.has_key ~p usr_config_key then
+      if PL.has_key ~p "config" then
         (* user configure command overrides default one *)
-        let config_cmd = PL.get ~p ~n:usr_config_key in
-        run_or ~cmd:config_cmd ~err:config_fail;
+        run_or ~cmd:(PL.get ~p ~n:"config") ~err:config_fail
       else if Sys.file_exists "configure" then
         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
-      (* Autodetect 'gnumake', 'gmake' and 'make' *)
-      let make =
-        if detect_exe "gnumake" then "gnumake"
-        else if detect_exe "gmake" then "gmake"
-        else if detect_exe "make" then "make"
-        else failwith "No gnumake/gmake/make executable found; cannot build"
-      in
-      if Sys.command make <> 0 then try_build_using Oasis_bootstrap
+      if Sys.command (Lazy.force make) <> 0 then try_build_using Oasis_bootstrap
       else (
         (* We rely on the fact that, at least on windows, setting an environment
          * variable to the empty string amounts to clearing it. *)
         Unix.putenv "OCAMLFIND_DESTDIR" destdir;
         (* TODO: MAKE TEST *)
-        run_or ~cmd:(install_pre ^ make ^ " install") ~err:install_fail)
+        run_or ~cmd:(install_pre ^ (Lazy.force make) ^ " install")
+               ~err:install_fail)
   in
 
   (* detect build type based on files in directory *)
@@ -707,7 +709,7 @@ and install_full ~is_dep p =
     install_get_reqs p
 
 let install_list pkgs =
-  List.iter (to_pkg |- install_full ~is_dep:false) pkgs;
+  List.iter (install_full ~is_dep:false) pkgs;
   if not (StringSet.is_empty !reqs) then (
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
@@ -716,8 +718,8 @@ let install_list pkgs =
   )
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
-  ignore(parse_package_file (odb_home </> "packages"));
-  ignore(parse_package_file (Fn.dirname (get_exe ()) </> "packages"));
+  parse_package_file (odb_home </> "packages") |> Repo.encache_list;
+  parse_package_file (Fn.dirname (get_exe ()) </> "packages") |> Repo.encache_list;
   (* initialize build directory if needed *)
   if !sudo then build_dir := Fn.temp_dir_name
   else (
@@ -729,35 +731,22 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   | Clean -> Sys.command ("rm -rvf install-*") |> ignore
   | Package when !to_install = [] -> (* install everything from system packages *)
     if !force_all then
-      Hashtbl.iter (fun id p -> install_full ~is_dep:false {id=id;props=p}) info_cache
+      Repo.entries () |> List.iter (install_full ~is_dep:false)
     else
       print_string "No package file given, use --force-all to install all packages from system package files\n"
   | _ when !to_install = [] -> (* list packages to install *)
-          let pkgs =
-            List.map (fun wr ->
-                      try deps_uri "00list" wr |> Http.get_contents
-                      with Failure _ -> printf "%s is unavailable or not a valid repository\n\n" wr; ""
-                     ) webroots |> String.concat " "
-          in
-          let pkgs = Str.split (Str.regexp " +") pkgs in
-          (match pkgs with
-           | [] -> print_endline "No packages available"
-           | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
-             let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
-             print_string "Available packages from oasis: ";
-             List.rev pkgs |> print_list;
-          );
-          print_string "Locally configured packages:";
-          Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
-          print_newline ()
-        | Get -> (* just download packages *)
-          let print_loc pid =
-            printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
-          List.iter print_loc !to_install
-        | Info -> List.map to_pkg !to_install |> List.iter PL.print
-        | Install -> install_list !to_install
-        (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
-        | Package -> (* install all packages from package files *)
-          let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
-          print_string "Packages to install: "; print_list ps;
-          install_list ps
+     List.map Repo.get_pkg_list webroots |> String.concat " "
+     |> Str.split (Str.regexp " +") |> unique
+     |> print_list ~pre:"Available packages from oasis-db:";
+     Repo.entries () |> print_plist ~pre:"Locally configured packages:";
+  | Get -> (* just download packages *)
+     let print_loc pid =
+       printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
+     List.iter print_loc !to_install
+  | Info -> List.map to_pkg !to_install |> List.iter PL.print
+  | Install -> List.map to_pkg !to_install |> install_list
+  (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
+  | Package -> (* install all packages from package files *)
+     List.map (get_remote |- parse_package_file) !to_install |> List.concat
+     |> tap (print_plist ~pre:"Packages to install:")
+     |> install_list
