@@ -126,7 +126,7 @@ let cmd_line =  Arg.align [
 let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
   if !base <> "" then print_endline ("Installing to OCaml base: " ^ !base);
-  ()
+  to_install := List.rev !to_install; ()
 
 (* micro-http library *)
 module Http = struct
@@ -194,12 +194,13 @@ module PL = struct
     try let old_v = List.assoc n pl in
         (n, f old_v) :: List.remove_assoc n pl with Not_found -> pl
   let has_key ~p k0 = List.mem_assoc k0 p.props
-  let print p = printf "%s\n" p.id;
-                List.iter (fun (k,v) ->
-                           if (String.contains v ' ') then printf "%s={%s}\n" k v
-                           else printf "%s=%s\n" k v
-                          ) p.props;
-                printf "\n"
+  let print p =
+    let print_line (k,v) =
+      if (String.contains v ' ') then printf "%s={%s}\n" k v
+      else printf "%s=%s\n" k v in
+    printf "%s\n" p.id;
+    List.iter print_line p.props;
+    printf "\n"
 end
 
 let deps_uri id webroot = webroot ^ !repository ^ "/pkg/info/" ^ id
@@ -372,7 +373,7 @@ module Dep = struct
     |None -> ""
     | Some (c,ver) -> (comp_to_string c) ^ (Ver.to_string ver)
 
-  let get_reqs p =
+  let get_reqs p = (* returns the installed packages that depend on p *)
     let p_id_len = String.length p.id in
     try
       Fl_package_base.package_users [] [p.id]
@@ -380,7 +381,7 @@ module Dep = struct
                                || String.sub r 0 p_id_len <> p.id)
     with Findlib.No_such_package _ ->
       []
-  let get_ver p =
+  let get_ver p = (* return the currently installed version of p *)
     match PL.get p "inst_type" with
     | "lib" ->
       ( try Some (Findlib.package_property [] p.id "version" |> parse_ver)
@@ -400,8 +401,8 @@ module Dep = struct
     match req, get_ver p with
     | _, None -> dprintf "Package %s not installed" p.id; false
     | None, Some _ -> dprintf "Package %s installed" p.id; true
-    | Some (c,vreq), Some inst -> comp (Ver.cmp inst vreq) c
-                                  |> dtap (printf "Package %s(%s) dep satisfied: %B\n%!" p.id (req_to_string req))
+    | Some (c,vreq), Some inst ->
+       comp (Ver.cmp inst vreq) c |> dtap (printf "Package %s(%s) dep satisfied: %B\n%!" p.id (req_to_string req))
   let parse_vreq vr =
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
@@ -730,7 +731,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
            | hd :: tl -> (* Remove duplicate entries (inefficiently) *)
              let pkgs = List.fold_left (fun accu p -> if List.mem p accu then accu else p :: accu) [hd] tl in
              print_string "Available packages from oasis: ";
-             print_list (List.rev pkgs);
+             List.rev pkgs |> print_list;
           );
           print_string "Locally configured packages:";
           Hashtbl.iter (fun k _v -> printf " %s" k) info_cache;
@@ -738,9 +739,9 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
         | Get -> (* just download packages *)
           let print_loc pid =
             printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
-          List.iter print_loc (List.rev !to_install)
-        | Info -> List.iter (to_pkg |- PL.print) (List.rev !to_install)
-        | Install -> install_list (List.rev !to_install);
+          List.iter print_loc !to_install
+        | Info -> List.map to_pkg !to_install |> List.iter PL.print
+        | Install -> install_list !to_install
         (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
         | Package -> (* install all packages from package files *)
           let ps = List.map (get_remote |- parse_package_file) !to_install |> List.concat in
