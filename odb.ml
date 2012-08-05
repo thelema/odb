@@ -475,6 +475,19 @@ module Dep = struct
     List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps |> List.concat
 end
 
+let topo_sort_gen deps eq list = (* generic topo sort *)
+  let needs_dep l x = List.exists (fun y -> List.exists (eq y) l) (deps x) in
+  let rec loop acc = function
+    | [] -> List.rev acc
+    | l -> match List.partition (needs_dep l) l with
+           | _, [] -> failwith "Loop in dependencies"
+           | needy, free -> loop (free @ acc) needy
+  in
+  loop [] list
+
+let topo_sort_pkgs pkg_list = (* topo-sort packages by deps *)
+  topo_sort_gen (fun pkg -> Dep.get_deps pkg |> List.map fst) (fun p q -> p.id = q.id) pkg_list
+
 let extract_cmd fn =
   let suff = Fn.check_suffix fn in
   if suff ".tar.gz" || suff ".tgz" then         "tar -zxf " ^ fn
