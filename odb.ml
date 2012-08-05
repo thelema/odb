@@ -90,7 +90,8 @@ let odb_lib     = getenv_def ~def:(odb_home </> "lib") "ODB_LIB_DIR"
 let odb_stubs   = getenv_def ~def:(odb_lib </> "stublibs") "ODB_STUBS_DIR"
 let odb_bin     = getenv_def ~def:(odb_home </> "bin") "ODB_BIN_DIR"
 let build_dir   = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
-let sudo = ref (Unix.geteuid () = 0) (* true if root *)
+let is_root = (Unix.geteuid () = 0) (* true if root *)
+let sudo = ref false
 let to_install = ref []
 let force = ref false
 let force_all = ref false
@@ -406,7 +407,7 @@ module Dep = struct
                if not (detect_exe p.id) then None
                else Some (parse_ver (first_line_output p.id)) )
 
-  let has_dep (p,req) = (* true iff p satisfies version requirement req*)
+  let is_sat (p,req) = (* true iff installed p satisfies version req *)
     match req, get_ver p with
     | _, None -> dprintf "Package %s not installed" p.id; false
     | None, Some _ -> dprintf "Package %s installed" p.id; true
@@ -427,11 +428,9 @@ module Dep = struct
       | [pkg; vreq] -> to_pkg_safe pkg, Some (parse_vreq vreq)
       | _ -> to_pkg_safe str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
-  let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
-                         |> List.filter (fun (p,_) -> p.id <> "")
-  let get_deps p = let deps = PL.get ~p ~n:"deps" in
-                   if deps = "?" then [] else string_to_deps deps
-  let is_auto_dep p = PL.get ~p ~n:"deps" = "?" || PL.get ~p ~n:"cli" = "yes"
+  let of_string s = Str.split (Str.regexp ",") s |> List.map make_dep
+                    |> List.filter (fun (p,_) -> p.id <> "")
+
   let of_oasis dir = (* reads the [dir]/_oasis file *)
     let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
@@ -439,7 +438,7 @@ module Dep = struct
       List.map (fun line ->
                 match Str.bounded_split (Str.regexp_string ":") line 2 with
                 | [("BuildDepends"|"    BuildDepends"); ds] -> (* FIXME, fragile *)
-                  [string_to_deps ds]
+                  [of_string ds]
                 | _ -> []) lines |> List.concat
 
   (* We are being very conservative here - just match all the requires, strip everything after dot *)
@@ -449,25 +448,24 @@ module Dep = struct
   let weird_rx = Str.regexp "__.*"    (* possibly autoconf var *)
   (* Search for META files - does not honor sym-links *)
   let rec find_metas dir =
-    let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
-    let dirs, files = List.partition
-                        (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) lst in
     let is_valid_meta fn = Str.string_match meta_rx (Fn.basename fn) 0 in
-    (* Annotate META with the coresponding package name, either from the directory or suffix *)
+    (* Annotate META with the coresponding package name, either from
+    the directory or suffix *)
     let annot_meta fn =
       let p = Fn.dirname fn in
       let fn' = Fn.basename fn in
-      try
-        if Str.string_match meta_rx fn' 0 then
-          Str.matched_group 2 fn', fn
-        else p, fn
+      try if Str.string_match meta_rx fn' 0
+          then Str.matched_group 2 fn', fn
+          else p, fn
       with Not_found -> p, fn
     in
-    let metas = List.filter is_valid_meta files in
-    let metas = List.map annot_meta metas in
+    let dirs, files =
+      Sys.readdir dir |> Array.to_list |> List.map ((</>) dir)
+      |> List.partition (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) in
+    let metas = List.filter is_valid_meta files |> List.map annot_meta in
     metas @ (List.map find_metas dirs |> List.concat)
-  let of_metas p dir = (* determines dependencies based on META files *)
-    let lst = find_metas dir in
+  let of_metas pkg = (* determines dependencies based on META files *)
+    let lst = find_metas (PL.get ~p:pkg ~n:"dir") in
     let meta (p, fn) =
       let lines = read_lines fn in
       List.map (fun line ->
@@ -475,13 +473,20 @@ module Dep = struct
                   try Str.split (Str.regexp "[ ,]") (Str.matched_group 2 line)
                   with Not_found -> []
                 else []) lines |> List.concat
-      (* Consider only base packages, filter out the package we are installing to
-         handle cases where we have sub packages *)
+      (* Consider only base packages, filter out the package we are
+         installing to handle cases where we have sub packages *)
       |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd)
       |> List.filter ((<>) p)
       |> List.filter (fun p -> not (Str.string_match weird_rx p 0))
     in
-    List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps |> List.concat
+    List.map meta lst |> List.concat |> List.filter ((<>) pkg.id)
+    |> List.map of_string |> List.concat
+
+  let get_deps p =
+    let deps = PL.get ~p ~n:"deps" in
+    if deps = "?" || PL.get ~p ~n:"cli" = "yes"
+    then if PL.get ~p ~n:"dir" <> "" then of_metas p else []
+    else of_string deps
 end
 
 let topo_sort_gen deps eq list = (* generic topo sort *)
@@ -553,34 +558,34 @@ let clone_cvs p =
 let clone_hg p = clone ~cmd:("hg clone " ^ PL.get p "hg") "clone mercurial" p
 let clone_darcs p = clone ~cmd:("darcs get --lazy " ^ PL.get p "darcs") "get darcs" p
 
-(* returns the directory that the package was extracted to *)
+(* sets the key 'dir' to the directory that the package was extracted to *)
 let get_package p =
-  if PL.has_key ~p "tarball" then extract_tarball p
-  else if PL.has_key ~p "dir" then (PL.get ~p ~n:"dir")
-  else if PL.has_key ~p "git" then clone_git p
-  else if PL.has_key ~p "svn" then clone_svn p
-  else if PL.has_key ~p "cvs" then clone_cvs p
-  else if PL.has_key ~p "hg"    then clone_hg p
-  else if PL.has_key ~p "darcs" then clone_darcs p
-  else if PL.has_key ~p "deps" then "." (* packages that are only deps are ok *)
-  else failwith ("No download method available for: " ^ p.id)
-
-let get_package p = get_package p |> tap (printf "package downloaded to %s\n%!")
+  let set_dir dir = printf "Package %s d/l to %s\n" p.id dir;
+                    PL.add p "dir" dir in
+  if PL.has_key ~p "tarball" then extract_tarball p |> set_dir
+  else if PL.has_key ~p "git" then clone_git p |> set_dir
+  else if PL.has_key ~p "svn" then clone_svn p |> set_dir
+  else if PL.has_key ~p "cvs" then clone_cvs p |> set_dir
+  else if PL.has_key ~p "hg"    then clone_hg p |> set_dir
+  else if PL.has_key ~p "darcs" then clone_darcs p |> set_dir;
+  if not (PL.has_key ~p "dir" || PL.has_key ~p "deps") then
+    failwith ("No download method available for: " ^ p.id)
 
 let uninstall p =
-  let as_root = PL.get_b p "install_as_root" || !sudo in
-  let install_pre =
-    if as_root then "sudo " else if !have_perms || !base <> "" then "" else
-      "OCAMLFIND_DESTDIR="^odb_lib^" " in
-  print_endline ("Uninstalling forced library " ^ p.id);
-  Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
+  if PL.get p "inst_type" <> "lib" then
+    failwith "Can only uninstall ocamlfind libraries"
+  else
+    let as_root = PL.get_b p "install_as_root" || !sudo in
+    let install_pre =
+      if as_root && not is_root then "sudo " else
+        if !have_perms || !base <> "" then "" else
+          "OCAMLFIND_DESTDIR="^odb_lib^" " in
+    print_endline ("Uninstalling forced library " ^ p.id);
+    Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
 (* Installing a package *)
-let rec install_from_current_dir ~is_dep p =
+let rec install_from_current_dir p =
   dprintf "Installing %s from %s" p.id (Sys.getcwd ());
-  let meta_deps = if Dep.is_auto_dep p then Dep.of_metas p.id (Sys.getcwd ()) else [] in
-  List.iter (fun (p,_ as d) ->
-             if not (Dep.has_dep d) then install_full ~is_dep:true p) meta_deps;
 
   (* define exceptions to raise for errors in various steps *)
   let oasis_fail = Failure ("Could not bootstrap from _oasis " ^ p.id)    in
@@ -590,6 +595,7 @@ let rec install_from_current_dir ~is_dep p =
   let install_fail = Failure ("Could not install package " ^ p.id) in
 
   (* configure installation parameters based on command-line flags *)
+  let is_dep = PL.get_b ~p ~n:"is_dep" in
   let as_root = PL.get_b p "install_as_root" || !sudo in
   let config_opt = if as_root || !have_perms then ""
                    else if !base <> "" then " --prefix " ^ !base
@@ -597,7 +603,7 @@ let rec install_from_current_dir ~is_dep p =
   let config_opt = config_opt ^ if not is_dep then (" " ^ !configure_flags) else "" in
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
   let install_pre, destdir =
-    if as_root then "sudo ", ""
+    if as_root && not is_root then "sudo ", ""
     else if !have_perms || !base <> "" then "", ""
     else "", odb_lib
   in
@@ -608,41 +614,42 @@ let rec install_from_current_dir ~is_dep p =
 
     match buildtype with
     | Oasis_bootstrap ->
-      if not (Sys.file_exists "_oasis") then failwith "_oasis file not found in package, cannot bootstrap.";
-      if not (detect_exe "oasis") then (
-        printf "This package (%s) most likely needs oasis on the path.\n" p.id;
-        print_endline "In general tarballs shouldn't require oasis.";
-        print_endline "Trying to get oasis.";
-        install_full ~is_dep:false (to_pkg "oasis")
-      );
-      run_or ~cmd:("oasis setup") ~err:oasis_fail;
-      try_build_using Oasis
+       if not (Sys.file_exists "_oasis") then failwith "_oasis file not found in package, cannot bootstrap.";
+       if not (detect_exe "oasis") then (
+         printf "This package (%s) most likely needs oasis on the path.\n" p.id;
+         print_endline "In general tarballs shouldn't require oasis.";
+         print_endline "Trying to get oasis.";
+         install_list [to_pkg "oasis"]
+       );
+       run_or ~cmd:("oasis setup") ~err:oasis_fail;
+       try_build_using Oasis
     | Oasis ->
-      run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
-      run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
-      Unix.putenv "OCAMLFIND_DESTDIR" destdir;
-      (*          run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
-      run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
+       run_or ~cmd:("ocaml setup.ml -configure" ^ config_opt) ~err:config_fail;
+       run_or ~cmd:"ocaml setup.ml -build" ~err:build_fail;
+       Unix.putenv "OCAMLFIND_DESTDIR" destdir;
+       (*          run_or ~cmd:"ocaml setup.ml -test" ~err:test_fail;*)
+       run_or ~cmd:(install_pre ^ "ocaml setup.ml -install") ~err:install_fail;
     | Omake ->
-      if not (detect_exe "omake") then
-        failwith "OMake executable not found; cannot build";
-      run_or ~cmd:"omake" ~err:build_fail;
-      (* TODO: MAKE TEST *)
-      run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
+       if not (detect_exe "omake") then
+         failwith "OMake executable not found; cannot build";
+       run_or ~cmd:"omake" ~err:build_fail;
+       (* TODO: MAKE TEST *)
+       run_or ~cmd:(install_pre ^ "omake install") ~err:install_fail;
     | Make ->
-      if PL.has_key ~p "config" then
-        (* user configure command overrides default one *)
-        run_or ~cmd:(PL.get ~p ~n:"config") ~err:config_fail
-      else if Sys.file_exists "configure" then
-        run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
-      if Sys.command (Lazy.force make) <> 0 then try_build_using Oasis_bootstrap
-      else (
-        (* We rely on the fact that, at least on windows, setting an environment
-         * variable to the empty string amounts to clearing it. *)
-        Unix.putenv "OCAMLFIND_DESTDIR" destdir;
-        (* TODO: MAKE TEST *)
-        run_or ~cmd:(install_pre ^ (Lazy.force make) ^ " install")
-               ~err:install_fail)
+       if PL.has_key ~p "config" then
+         (* user configure command overrides default one *)
+         run_or ~cmd:(PL.get ~p ~n:"config") ~err:config_fail
+       else if Sys.file_exists "configure" then
+         run_or ~cmd:("./configure" ^ config_opt) ~err:config_fail;
+       if Sys.command (Lazy.force make) <> 0 then try_build_using Oasis_bootstrap
+       else (
+         (* We rely on the fact that, at least on windows, setting an
+          environment variable to the empty string amounts to clearing
+          it. *)
+         Unix.putenv "OCAMLFIND_DESTDIR" destdir;
+         (* TODO: MAKE TEST *)
+         run_or ~cmd:(install_pre ^ (Lazy.force make) ^ " install")
+                ~err:install_fail)
   in
 
   (* detect build type based on files in directory *)
@@ -655,7 +662,7 @@ let rec install_from_current_dir ~is_dep p =
   try_build_using buildtype;
 
   (* test whether installation was successful *)
-  if (PL.get p "cli" <> "yes") && not (Dep.has_dep (p,None)) then (
+  if (PL.get p "cli" <> "yes") && not (Dep.is_sat (p,None)) then (
     print_endline ("Problem with installed package: " ^ p.id);
     print_endline ("Installed package is not available to the system");
     print_endline ("Make sure "^odb_lib^" is in your OCAMLPATH");
@@ -664,52 +671,51 @@ let rec install_from_current_dir ~is_dep p =
   );
 
   print_endline ("Successfully installed " ^ p.id);
-  Dep.get_reqs p (* return the requirements for this package *)
+  Dep.get_reqs p (* return the packages that depend on this package *)
 
-and install_package ~is_dep p =
+and install_package p =
   (* uninstall forced libraries *)
-  if (Dep.get_ver p <> None) && (PL.get p "inst_type" == "lib") then
-    uninstall p;
-  indir (get_package p) (fun () -> install_from_current_dir ~is_dep p)
+  if (Dep.get_ver p <> None) then uninstall p;
+  indir (PL.get p "dir") (fun () -> install_from_current_dir p)
 
-(* install a package and all its deps *)
-and install_full ~is_dep p =
+and install_full p =
+  printf "Installing %s\n%!" p.id;
+  let reqs_imm = install_package p
+                 |> List.filter (fun s -> not (String.contains s '.'))
+                 |> StringSet.of_list in
+  let reinstall id = (* if install of req fails,  *)
+    try install_full (to_pkg id) with _ -> reqs := StringSet.add id !reqs in
+  if !auto_reinstall then StringSet.iter reinstall reqs_imm
+  else reqs := StringSet.union reqs_imm !reqs (* unreinstalled reqs *)
+
+(* prepare to install package, returns path to source and list of
+unsatisfied deps *)
+and prep_install p =
+  let is_dep = PL.get_b ~p ~n:"is_dep" in
   let force_me = !force_all || (not is_dep && !force) in
   match Dep.get_ver p with
   (* abort if old version of dependency exists and no --force-all *)
   | Some v when is_dep && not !force_all ->
-    printf "\nDependency %s has version %s but needs to be upgraded.\nTo allow odb to do this, use --force-all\nAborting." p.id (Ver.to_string v);
-    exit 1
+     printf "\nDependency %s has version %s but needs to be upgraded.\nTo allow odb to do this, use --force-all\nAborting." p.id (Ver.to_string v);
+     exit 1
   (* warn if a dependency is already installed *)
   | Some v when not force_me ->
-    let cat, arg = if is_dep then "Dependency", "--force-all" else "Package", "--force" in
-    printf "%s %s(%s) already installed, use %s to reinstall\n" cat p.id (Ver.to_string v) arg;
-  | _ ->
-    printf "Installing %s\n%!" p.id;
-    let deps = Dep.get_deps p in
-    List.iter (fun (p,_ as d) -> if not (Dep.has_dep d) then install_full ~is_dep:true p) deps;
-    if deps <> [] then printf "Deps for %s satisfied\n%!" p.id;
-    let rec install_get_reqs p =
-      let reqs_imm =
-        install_package ~is_dep p |>
-          (List.filter (fun s -> not (String.contains s '.'))) |>
-          StringSet.of_list
-      in
-      if !auto_reinstall then
-        StringSet.iter
-          (fun pid ->
-           try install_get_reqs (to_pkg pid)
-           with _ ->
-             (* if install of req fails, print pid *)
-             reqs := StringSet.add pid !reqs)
-          reqs_imm
-      else
-        reqs := StringSet.union reqs_imm !reqs; (* unreinstalled reqs *)
-    in
-    install_get_reqs p
+     let cat, arg = if is_dep then "Dependency", "--force-all" else "Package", "--force" in
+     printf "%s %s(%s) already installed, use %s to reinstall\n" cat p.id (Ver.to_string v) arg; None
+  | _ -> (* not currently installed or forced *)
+     get_package p;
+     Some (p, Dep.get_deps p |> List.filter (Dep.is_sat |- not) )
 
-let install_list pkgs =
-  List.iter (install_full ~is_dep:false) pkgs;
+and install_list pkgs = (* install a package and all its deps *)
+  let rec all_needed is_dep acc ps =
+    if is_dep then List.iter (fun p -> PL.add ~p "is_dep" "true") ps;
+    let packages, deps = List.map prep_install ps |> unopt |> List.split in
+    let deps = List.concat deps in
+    if deps = [] then packages @ acc else
+      all_needed true (packages @ acc) (List.map fst deps)
+  in
+  let to_install = all_needed false [] pkgs |> unique |> topo_sort_pkgs in
+  List.iter install_full to_install;
   if not (StringSet.is_empty !reqs) then (
     print_endline "Some packages depend on the just installed packages and should be re-installed.";
     print_endline "The command to do this is:";
@@ -730,20 +736,16 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   match !main with
   | Clean -> Sys.command ("rm -rvf install-*") |> ignore
   | Package when !to_install = [] -> (* install everything from system packages *)
-    if !force_all then
-      Repo.entries () |> List.iter (install_full ~is_dep:false)
-    else
-      print_string "No package file given, use --force-all to install all packages from system package files\n"
+    if !force_all then Repo.entries () |> List.iter install_full
+    else print_string "No package file given, use --force-all to install all packages from system package files\n"
   | _ when !to_install = [] -> (* list packages to install *)
      List.map Repo.get_pkg_list webroots |> String.concat " "
      |> Str.split (Str.regexp " +") |> unique
      |> print_list ~pre:"Available packages from oasis-db:";
      Repo.entries () |> print_plist ~pre:"Locally configured packages:";
   | Get -> (* just download packages *)
-     let print_loc pid =
-       printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
-     List.iter print_loc !to_install
-  | Info -> List.map to_pkg !to_install |> List.iter PL.print
+     List.iter (to_pkg |- get_package) !to_install
+  | Info -> List.iter (to_pkg |- PL.print) !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
