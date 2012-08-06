@@ -272,7 +272,7 @@ let is_uri str =
 
 let get_remote fn =
   if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
-  else if Fn.is_relative fn then failwith "non-absolute filename not allowed"
+  else if Fn.is_relative fn then failwith ("non-absolute filename not allowed: " ^ fn)
   else (dprintf "Local File %s" fn; fn)
 
 (* [get_tarball_check p idir] fetches the tarball associated to the
@@ -560,7 +560,7 @@ let clone_darcs p = clone ~cmd:("darcs get --lazy " ^ PL.get p "darcs") "get dar
 
 (* sets the key 'dir' to the directory that the package was extracted to *)
 let get_package p =
-  let set_dir dir = printf "Package %s d/l to %s\n" p.id dir;
+  let set_dir dir = printf "Package %s d/l to %s\n%!" p.id dir;
                     PL.add p "dir" dir in
   if PL.has_key ~p "tarball" then extract_tarball p |> set_dir
   else if PL.has_key ~p "git" then clone_git p |> set_dir
@@ -710,9 +710,11 @@ and install_list pkgs = (* install a package and all its deps *)
   let rec all_needed is_dep acc ps =
     if is_dep then List.iter (fun p -> PL.add ~p "is_dep" "true") ps;
     let packages, deps = List.map prep_install ps |> unopt |> List.split in
-    let deps = List.concat deps in
-    if deps = [] then packages @ acc else
-      all_needed true (packages @ acc) (List.map fst deps)
+    let deps = List.concat deps |> List.map fst in
+    if deps = [] then packages @ acc else (
+      print_plist ~pre:"Dependencies added:" deps;
+      all_needed true (packages @ acc) deps
+    )
   in
   let to_install = all_needed false [] pkgs |> unique |> topo_sort_pkgs in
   List.iter install_full to_install;
