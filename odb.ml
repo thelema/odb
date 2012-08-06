@@ -104,7 +104,7 @@ let configure_flags = ref ""
 let configure_flags_global = ref ""
 (* what packages need to be reinstalled because of updates *)
 let reqs = ref (StringSet.empty)
-type main_act = Install | Get | Info | Clean | Package
+type main_act = Install | Get | Info | Clean | Package | Uninstall
 let main = ref Install
 
 (* Command line argument handling *)
@@ -128,6 +128,7 @@ let cmd_line =  Arg.align [
   "--get", set_ref main Get, " Only download and extract packages; don't install";
   "--info", set_ref main Info, " Only print the metadata for the packages listed; don't install";
   "--package", set_ref main Package, " Install all packages from package files";
+  "--uninstall", set_ref main Uninstall, " Uninstall the listed packages";
   ]
 
 let () =
@@ -178,6 +179,12 @@ module PL = struct
   let get_i ~p ~n =
     try List.assoc n p.props |> int_of_string with Not_found -> -1 | Failure "int_of_string" -> failwith (sprintf "Cannot convert %s.%s=\"%s\" to int" p.id n (List.assoc n p.props))
 
+  let make_install_type pl =
+    if List.mem_assoc "inst_type" pl then pl else
+      match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
+      | Some "true", _ -> ("inst_type", "lib")::pl
+      | _, Some "true" -> ("inst_type", "app")::pl
+      | _ -> pl
   let of_string str =
     let rec parse str acc =
       try let key, rest = split str '=' in
@@ -196,7 +203,7 @@ module PL = struct
               |> Str.global_replace (Str.regexp "#[^\n]*\n") ""
               |> Str.global_replace (Str.regexp " *= *") "="
               |> Str.global_replace (Str.regexp "[\n \t\r]+") " " in
-    parse str []
+    parse str [] |> make_install_type
   let add ~p k v = p.props <- (k,v) :: p.props
   let modify_assoc ~n f pl =
     try let old_v = List.assoc n pl in
@@ -227,12 +234,6 @@ module Repo = struct (* wrapper functions to get data from server *)
         let backup_addr = prefix_webroot_backup webroot tarball in
         ("tarball2", backup_addr) :: pl
     with Not_found -> pl
-  let make_install_type pl =
-    if List.mem_assoc "inst_type" pl then pl else
-      match de_exn2 List.assoc "is_library" pl, de_exn2 List.assoc "is_program" pl with
-      | Some "true", _ -> ("inst_type", "lib")::pl
-      | _, Some "true" -> ("inst_type", "app")::pl
-      | _ -> pl
 
   let get_info id = (* gets a package's info from the repo *)
     try Hashtbl.find info_cache id
@@ -243,7 +244,6 @@ module Repo = struct (* wrapper functions to get data from server *)
            try deps_uri id webroot |> Http.get_contents
                |> PL.of_string
                |> make_backup_dl webroot
-               |> make_install_type (* convert is_* to inst_type *)
                (* prefix the tarball location by the server address *)
                |> PL.modify_assoc ~n:"tarball" (prefix_webroot webroot)
                |> tap (Hashtbl.add info_cache id)
@@ -580,7 +580,7 @@ let uninstall p =
       if as_root && not is_root then "sudo " else
         if !have_perms || !base <> "" then "" else
           "OCAMLFIND_DESTDIR="^odb_lib^" " in
-    print_endline ("Uninstalling forced library " ^ p.id);
+    print_endline ("Uninstalling library " ^ p.id);
     Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
 (* Installing a package *)
@@ -754,3 +754,4 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
      List.map (get_remote |- parse_package_file) !to_install |> List.concat
      |> tap (print_plist ~pre:"Packages to install:")
      |> install_list
+  | Uninstall -> List.iter (to_pkg |- uninstall) !to_install
