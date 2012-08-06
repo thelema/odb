@@ -54,7 +54,7 @@ let get_exe () = (* returns the full path and name of the current program *)
   |> iff (fun e -> Unix.((lstat e).st_kind = S_LNK)) Unix.readlink
 let run_or ~cmd ~err = dprintf "R:%s" cmd; if Sys.command cmd <> 0 then raise err
 let chomp s = let l = String.length s in if l = 0 || s.[l-1] != '\r' then s else slice s 0 (l-1)
-let print_list ?(pre="") l = print_string pre; List.iter (printf "%s ") l; print_newline ()
+let print_list ?(pre="") l = print_string pre; List.iter (printf " %s") l; print_newline ()
 let rec mapi f i = function [] -> [] | h::t -> let a=f i h in a::mapi f (i+1) t
 let rec unopt = function []->[] | Some x::t -> x::unopt t | None::t -> unopt t
 let rec unique = function []->[] | h::t when List.mem h t -> unique t | h::t -> h::unique t
@@ -168,7 +168,7 @@ end
 
 (* Type of a package, with its information in a prop list *)
 type pkg = {id: string; mutable props: (string * string) list}
-let print_plist ?(pre="") l = print_string pre; List.iter (fun p -> printf "%s " p.id) l; print_newline ()
+let print_plist ?(pre="") l = print_string pre; List.iter (fun p -> printf " %s" p.id) l; print_newline ()
 
 (* micro property-list library *)
 module PL = struct
