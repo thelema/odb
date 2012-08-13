@@ -89,7 +89,7 @@ let odb_home    = getenv_def ~def:default_base "ODB_INSTALL_DIR"
 let odb_lib     = getenv_def ~def:(odb_home </> "lib") "ODB_LIB_DIR"
 let odb_stubs   = getenv_def ~def:(odb_lib </> "stublibs") "ODB_STUBS_DIR"
 let odb_bin     = getenv_def ~def:(odb_home </> "bin") "ODB_BIN_DIR"
-let build_dir   = ref (getenv_def ~def:default_base "ODB_BUILD_DIR")
+let build_dir   = ref (getenv_def ~def:(odb_home </> "build") "ODB_BUILD_DIR")
 let is_root = (Unix.geteuid () = 0) (* true if root *)
 let sudo = ref false
 let to_install = ref []
