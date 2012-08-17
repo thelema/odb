@@ -110,23 +110,23 @@ let main = ref Install
 let push_install s = to_install := s :: !to_install
 let set_ref ref v = Arg.Unit (fun () -> ref := v)
 let cmd_line =  Arg.align [
+  "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
   "--clean", Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
-  "--sudo", Arg.Set sudo, " Switch to root for installs";
-  "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
-  "--no-base", Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
   "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   "--configure-flags-all", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
+  "--debug", Arg.Set debug, " Debug package dependencies";
   "--force", Arg.Set force, " Force (re)installation of packages named";
   "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
-  "--debug", Arg.Set debug, " Debug package dependencies";
-  "--unstable", set_ref repository "unstable", " Use unstable repo";
-  "--stable", set_ref repository "stable", " Use stable repo";
-  "--testing", set_ref repository "testing", " Use testing repo [default]";
-  "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
-  "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
   "--get", set_ref main Get, " Only download and extract packages; don't install";
+  "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
+  "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
   "--info", set_ref main Info, " Only print the metadata for the packages listed; don't install";
+  "--no-base", Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
   "--package", set_ref main Package, " Install all packages from package files";
+  "--stable", set_ref repository "stable", " Use stable repo";
+  "--sudo", Arg.Set sudo, " Switch to root for installs";
+  "--testing", set_ref repository "testing", " Use testing repo [default]";
+  "--unstable", set_ref repository "unstable", " Use unstable repo";
   ]
 
 let () =
