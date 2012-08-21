@@ -87,3 +87,32 @@ example `packages` file in the odb source tree.
 [OCaml]: http://caml.inria.fr/ocaml/release.en.html
 [curl]: http://curl.haxx.se/
 [wget]: http://www.gnu.org/software/wget/
+
+
+### Environment Variables
+
+Odb will pay attention to a number of environment variables for
+configuration purposes:
+
+ODB_PACKAGE_ROOT: defaults to "http://oasis.ocamlcore.org/dev/odb/"
+  Set this to the root URL of your remote repository
+
+ODB_INSTALL_DIR: defaults to $HOME/.odb
+  Base directory for odb installation; changing this affects LIB/STUBS/BIN
+
+ODB_LIB_DIR: defaults to $HOME/.odb/lib or $ODB_INSTALL_DIR/lib
+  Where findlib libraries are installed; needs to be in $OCAML_PATH
+
+ODB_STUBS_DIR: defaults to $HOME/.odb/stublibs or $ODB_INSTALL_DIR/stublibs
+  Where stub libraries are installed; needs to be in `ld.conf`
+
+ODB_BIN_DIR: defaults to $HOME/.odb/bin or $ODB_INSTALL_DIR/bin
+  Where executables are installed; needs to be in $PATH
+
+ODB_BUILD_DIR: defaults to $HOME/.odb/build or $ODB_INSTALL_DIR/build
+  Where downloaded tarballs are extracted to for building
+
+GODI_LOCALBASE / OCAML_BASE:
+  If set, then value will be used for `--prefix` and OCAMLFIND_DESTDIR
+  will not be set when installing (as ocamlfind should already be
+  setup to install to correct location)
