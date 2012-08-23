@@ -123,3 +123,7 @@ annot git=git://github.com/avsm/ocaml-annot.git is_program=true
 # promising replacement for ocamlbuild
 # broken: no install target in makefile, no configure script to at least give --prefix=[some_path]
 ocp-build tarball=http://www.ocamlpro.com/pub/ocp-build.tar.gz
+
+# The OCaml Bioinformatics Library
+# broken: seems like it needs oasis 0.3.1
+biocaml git=git://github.com/biocaml/biocaml.git
