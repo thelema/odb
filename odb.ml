@@ -117,42 +117,25 @@ let handle_short_options key_spec_doc_list =
   loop key_spec_doc_list []
 let push_install s = to_install := s :: !to_install
 let set_ref ref v = Arg.Unit (fun () -> ref := v)
-let cmd_line =  Arg.align [
-  "--auto-reinstall", Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
-  "-ar"             , Arg.Set auto_reinstall, " <=> --auto-reinstall";
-  "--clean", Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
-  "-c"     , Arg.Unit(fun () -> main := Clean), " <=> --clean";
-  "--configure-flags", Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
-  "-cf"              , Arg.Set_string configure_flags, " <=> --configure-flags";
-  "--configure-flags-all", Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
-  "-cfa"                 , Arg.Set_string configure_flags_global, " <=> --configure-flags-all";
-  "--debug", Arg.Set debug, " Debug package dependencies";
-  "-d"     , Arg.Set debug, " <=> --debug";
-  "--force", Arg.Set force, " Force (re)installation of packages named";
-  "-f"     , Arg.Set force, " <=> --force";
-  "--force-all", Arg.Set force_all, " Force (re)installation of dependencies";
-  "-fa"        , Arg.Set force_all, " <=> --force-all";
-  "--get"      , set_ref main Get, " Only download and extract packages; don't install";
-  "-g"         , set_ref main Get, " <=> --get";
-  "--have-perms", Arg.Set have_perms, " Don't use --prefix even without sudo";
-  "-hp"         , Arg.Set have_perms, " <=> --have-perms";
-  "--ignore", Arg.Set ignore_unknown, " Don't fail on unknown package name";
-  "-i"      , Arg.Set ignore_unknown, " <=> --ignore";
-  "--info", set_ref main Info, " Only print the metadata for the packages listed; don't install";
-  "-l"    , set_ref main Info, " <=> --info";
-  "--no-base", Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
-  "-nb"      , Arg.Unit(fun () -> base := ""), " <=> --no-base";
-  "--package", set_ref main Package, " Install all packages from package files";
-  "-p"       , set_ref main Package, " <=> --package";
-  "--stable", set_ref repository "stable", " Use stable repo";
-  "-s"      , set_ref repository "stable", " <=> --stable";
-  "--sudo", Arg.Set sudo, " Switch to root for installs";
-  "-su"   , Arg.Set sudo, " <=> --sudo";
-  "--testing", set_ref repository "testing", " Use testing repo [default]";
-  "-t"       , set_ref repository "testing", " <=> --testing";
-  "--unstable", set_ref repository "unstable", " Use unstable repo";
-  "-u"        , set_ref repository "unstable", " <=> --unstable";
-  ]
+let cmd_line = Arg.align (handle_short_options [
+  ("--auto-reinstall", "-ar"), Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
+  ("--clean", "-c"), Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
+  ("--configure-flags", "-cf"), Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
+  ("--configure-flags-all", "-cfa"), Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
+  ("--debug", "-d"), Arg.Set debug, " Debug package dependencies";
+  ("--force", "-f"), Arg.Set force, " Force (re)installation of packages named";
+  ("--force-all", "-fa"), Arg.Set force_all, " Force (re)installation of dependencies";
+  ("--get", "-g"), set_ref main Get, " Only download and extract packages; don't install";
+  ("--have-perms", "-hp"), Arg.Set have_perms, " Don't use --prefix even without sudo";
+  ("--ignore", "-i"), Arg.Set ignore_unknown, " Don't fail on unknown package name";
+  ("--info", "-l"), set_ref main Info, " Only print the metadata for the packages listed; don't install";
+  ("--no-base", "-nb"), Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
+  ("--package", "-p"), set_ref main Package, " Install all packages from package files";
+  ("--stable", "-s"), set_ref repository "stable", " Use stable repo";
+  ("--sudo", "-su"), Arg.Set sudo, " Switch to root for installs";
+  ("--testing", "-t"), set_ref repository "testing", " Use testing repo [default]";
+  ("--unstable", "-u"), set_ref repository "unstable", " Use unstable repo";
+  ])
 
 let () =
   Arg.parse cmd_line push_install "ocaml odb.ml [--sudo] [<packages>]";
