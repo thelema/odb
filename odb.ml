@@ -107,6 +107,14 @@ type main_act = Install | Get | Info | Clean | Package
 let main = ref Install
 
 (* Command line argument handling *)
+let handle_short_options key_spec_doc_list =
+  let rec loop l acc = match l with
+    | [] -> List.rev acc
+    | ((l_key, s_key), spec, l_doc) :: xs ->
+        let s_doc = Printf.sprintf " <=> %s" l_key in
+        loop xs ((s_key, spec, s_doc) :: (l_key, spec, l_doc) :: acc)
+  in
+  loop key_spec_doc_list []
 let push_install s = to_install := s :: !to_install
 let set_ref ref v = Arg.Unit (fun () -> ref := v)
 let cmd_line =  Arg.align [
