@@ -752,12 +752,12 @@ let rec get_dep_edges to_visit visited edges =
     get_dep_edges to_visit_next (StringSet.add pkg visited) new_edges
 
 let output_deps pkgs =
-  printf "strict digraph dependencies {\n";
-  printf "  node [shape = circle];\n";
-  StringSet.iter
-    (printf "%s")
-    (get_dep_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty);
-  printf "}\n"
+  list_to_file "deps.dot" (fun x -> x)
+    (["strict digraph dependencies {\n";
+      "  node [shape = circle];\n"] @
+       (StringSet.elements
+          (get_dep_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty)) @
+     ["}\n"])
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
@@ -768,6 +768,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
     mkdir odb_home;
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
+  let here = Sys.getcwd () in
   Sys.chdir !build_dir;
   match !main with
   | Clean -> Sys.command ("rm -rvf install-*") |> ignore
@@ -786,7 +787,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
-  | Deps -> output_deps !to_install
+  | Deps -> Sys.chdir here; output_deps !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
