@@ -739,6 +739,26 @@ let output_deps pkgs =
     pkgs;
   printf "}\n"
 
+let rec get_dep_edges to_visit visited edges =
+  if StringSet.is_empty to_visit then edges
+  else
+    let pkg = StringSet.min_elt to_visit in
+    let new_edges =
+      List.fold_left
+        (fun acc (q,_) ->
+           let new_edge = sprintf "  %s -> %s;\n" pkg q.id in
+           StringSet.add new_edge acc)
+        edges (Dep.get_deps (to_pkg pkg))
+    in
+    let to_visit_new =
+      List.fold_left
+        (fun acc (p,_) -> StringSet.add p.id acc)
+        StringSet.empty (Dep.get_deps (to_pkg pkg))
+    in
+    let to_visit_next =
+      StringSet.union (StringSet.remove pkg to_visit) to_visit_new in
+    get_dep_edges to_visit_next (StringSet.add pkg visited) new_edges
+
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
   parse_package_file (Fn.dirname (get_exe ()) </> "packages") |> Repo.encache_list;
