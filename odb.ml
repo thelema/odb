@@ -726,6 +726,19 @@ let install_list pkgs =
     StringSet.print !reqs;
   )
 
+let output_deps pkgs =
+  printf "strict digraph dependencies {\n";
+  printf "  node [shape = circle];\n";
+  List.iter
+    (fun p ->
+       let pkg = to_pkg p in
+       printf "// %s\n" pkg.id;
+       List.iter
+         (fun (q,_) -> printf "  %s -> %s;\n" pkg.id q.id)
+         (Dep.get_deps pkg))
+    pkgs;
+  printf "}\n"
+
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
   parse_package_file (Fn.dirname (get_exe ()) </> "packages") |> Repo.encache_list;
@@ -753,7 +766,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
-  | Deps -> List.iter (printf "%s\n") !to_install
+  | Deps -> output_deps !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
