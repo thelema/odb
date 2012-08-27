@@ -103,7 +103,7 @@ let configure_flags = ref ""
 let configure_flags_global = ref ""
 (* what packages need to be reinstalled because of updates *)
 let reqs = ref (StringSet.empty)
-type main_act = Install | Get | Info | Clean | Package
+type main_act = Install | Get | Info | Deps | Clean | Package
 let main = ref Install
 
 (* Command line argument handling *)
@@ -123,6 +123,7 @@ let cmd_line = Arg.align (handle_short_options [
   ("--configure-flags", "-cf"), Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   ("--configure-flags-all", "-cfa"), Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   ("--debug", "-d"), Arg.Set debug, " Debug package dependencies";
+  ("--deps", "-dp"), set_ref main Deps, " Output dependency graph of listed packages; don't install";
   ("--force", "-f"), Arg.Set force, " Force (re)installation of packages named";
   ("--force-all", "-fa"), Arg.Set force_all, " Force (re)installation of dependencies";
   ("--get", "-g"), set_ref main Get, " Only download and extract packages; don't install";
@@ -752,6 +753,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
+  | Deps -> List.iter (printf "%s\n") !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
