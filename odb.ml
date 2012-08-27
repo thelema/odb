@@ -66,6 +66,11 @@ let first_line_output cmd =
   let ic = Unix.open_process_in cmd in
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
+let list_to_file f to_string l =
+  let out = open_out f in
+  List.iter (fun elt -> fprintf out "%s" (to_string elt)) l;
+  close_out out
+
 
 (* Useful types *)
 module StringSet = struct (* extend type with more operations *)
