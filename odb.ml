@@ -726,19 +726,6 @@ let install_list pkgs =
     StringSet.print !reqs;
   )
 
-let output_deps pkgs =
-  printf "strict digraph dependencies {\n";
-  printf "  node [shape = circle];\n";
-  List.iter
-    (fun p ->
-       let pkg = to_pkg p in
-       printf "// %s\n" pkg.id;
-       List.iter
-         (fun (q,_) -> printf "  %s -> %s;\n" pkg.id q.id)
-         (Dep.get_deps pkg))
-    pkgs;
-  printf "}\n"
-
 let rec get_dep_edges to_visit visited edges =
   if StringSet.is_empty to_visit then edges
   else
@@ -758,6 +745,14 @@ let rec get_dep_edges to_visit visited edges =
     let to_visit_next =
       StringSet.union (StringSet.remove pkg to_visit) to_visit_new in
     get_dep_edges to_visit_next (StringSet.add pkg visited) new_edges
+
+let output_deps pkgs =
+  printf "strict digraph dependencies {\n";
+  printf "  node [shape = circle];\n";
+  StringSet.iter
+    (printf "%s")
+    (get_dep_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty);
+  printf "}\n"
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
