@@ -268,7 +268,7 @@ let parse_package_file fn =
     dprintf "%d packages loaded from %s\n" (List.length packages) fn; packages
 
 let is_uri str =
-  Str.string_match (Str.regexp "^\\(http\\|ftp\\|https\\):") str 0
+  Str.string_match (Str.regexp "^\\(https?\\|ftp\\|git\\):") str 0
 
 let get_remote fn =
   if is_uri fn then Http.get_fn ~silent:false fn ()(* download to current dir *)
