@@ -752,13 +752,15 @@ let rec get_dep_edges to_visit visited edges =
       StringSet.union (StringSet.remove pkg to_visit) to_visit_new in
     get_dep_edges to_visit_next (StringSet.add pkg visited) new_edges
 
-let output_deps pkgs =
-  list_to_file "deps.dot" (fun x -> x)
+let output_deps fn pkgs =
+  list_to_file fn (fun x -> x)
     (["strict digraph dependencies {\n";
       "  node [shape = circle];\n"] @
        (StringSet.elements
           (get_dep_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty)) @
-     ["}\n"])
+     ["}\n"]);
+  printf "to view the graph: dotty %s\n" fn;
+  printf "to convert it to png: dot -Tpng %s > deps.png\n" fn
 
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
@@ -788,7 +790,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
-  | Deps fn -> Sys.chdir here; output_deps !to_install
+  | Deps fn -> Sys.chdir here; output_deps fn !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
