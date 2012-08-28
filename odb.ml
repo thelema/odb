@@ -739,7 +739,7 @@ let rec dependency_edges to_visit visited edges =
     let new_edges =
       List.fold_left
         (fun acc (q,_) ->
-           let new_edge = sprintf "  %s -> %s;\n" pkg q.id in
+           let new_edge = sprintf "  \"%s\" -> \"%s\";\n" pkg q.id in
            StringSet.add new_edge acc)
         edges (Dep.get_deps (to_pkg pkg)) in
     let to_visit_new =
