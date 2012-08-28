@@ -108,7 +108,7 @@ let configure_flags = ref ""
 let configure_flags_global = ref ""
 (* what packages need to be reinstalled because of updates *)
 let reqs = ref (StringSet.empty)
-type main_act = Install | Get | Info | Deps | Clean | Package
+type main_act = Install | Get | Info | Deps of string | Clean | Package
 let main = ref Install
 
 (* Command line argument handling *)
@@ -122,20 +122,21 @@ let handle_short_options key_spec_doc_list =
   loop key_spec_doc_list []
 let push_install s = to_install := s :: !to_install
 let set_ref ref v = Arg.Unit (fun () -> ref := v)
+let set_deps_output = Arg.String (fun fn -> main := Deps fn)
 let cmd_line = Arg.align (handle_short_options [
   ("--auto-reinstall", "-ar"), Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
-  ("--clean", "-c"), Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
+  ("--clean", "-c"), set_ref main Clean, " Cleanup downloaded tarballs and install folders";
   ("--configure-flags", "-cf"), Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   ("--configure-flags-all", "-cfa"), Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   ("--debug", "-d"), Arg.Set debug, " Debug package dependencies";
-  ("--deps", "-dp"), set_ref main Deps, " Output dependency graph of listed packages; don't install";
+  ("--deps", "-dp"), set_deps_output, " Output dependency graph of listed packages to file (graphviz dot tool format)";
   ("--force", "-f"), Arg.Set force, " Force (re)installation of packages named";
   ("--force-all", "-fa"), Arg.Set force_all, " Force (re)installation of dependencies";
   ("--get", "-g"), set_ref main Get, " Only download and extract packages; don't install";
   ("--have-perms", "-hp"), Arg.Set have_perms, " Don't use --prefix even without sudo";
   ("--ignore", "-i"), Arg.Set ignore_unknown, " Don't fail on unknown package name";
   ("--info", "-l"), set_ref main Info, " Only print the metadata for the packages listed; don't install";
-  ("--no-base", "-nb"), Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
+  ("--no-base", "-nb"), set_ref base "", " Don't auto-detect GODI/BASE";
   ("--package", "-p"), set_ref main Package, " Install all packages from package files";
   ("--stable", "-s"), set_ref repository "stable", " Use stable repo";
   ("--sudo", "-su"), Arg.Set sudo, " Switch to root for installs";
@@ -787,7 +788,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
-  | Deps -> Sys.chdir here; output_deps !to_install
+  | Deps fn -> Sys.chdir here; output_deps !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
