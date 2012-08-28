@@ -575,11 +575,11 @@ let uninstall p =
   if PL.get p "inst_type" <> "lib" then
     failwith "Can only uninstall ocamlfind libraries"
   else
-    let as_root = PL.get_b p "install_as_root" || !sudo in
+    let do_sudo = (PL.get_b p "install_as_root" || !sudo) && not is_root in
     let install_pre =
-      if as_root && not is_root then "sudo " else
-        if !have_perms || !base <> "" then "" else
-          "OCAMLFIND_DESTDIR="^odb_lib^" " in
+      if do_sudo then "sudo "
+      else if !have_perms || !base <> "" then ""
+      else "OCAMLFIND_DESTDIR="^odb_lib^" " in
     print_endline ("Uninstalling library " ^ p.id);
     Sys.command (install_pre ^ "ocamlfind remove " ^ p.id) |> ignore
 
@@ -596,14 +596,14 @@ let rec install_from_current_dir p =
 
   (* configure installation parameters based on command-line flags *)
   let is_dep = PL.get_b ~p ~n:"is_dep" in
-  let as_root = PL.get_b p "install_as_root" || !sudo in
-  let config_opt = if as_root || !have_perms then ""
+  let do_sudo = (PL.get_b p "install_as_root" || !sudo) && not is_root in
+  let config_opt = if do_sudo || !have_perms then ""
                    else if !base <> "" then " --prefix " ^ !base
                    else " --prefix " ^ odb_home in
   let config_opt = config_opt ^ if not is_dep then (" " ^ !configure_flags) else "" in
   let config_opt = config_opt ^ " " ^ !configure_flags_global in
   let install_pre, destdir =
-    if as_root && not is_root then "sudo ", ""
+    if do_sudo then "sudo ", ""
     else if !have_perms || !base <> "" then "", ""
     else "", odb_lib
   in
@@ -732,7 +732,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   if !sudo then build_dir := Fn.temp_dir_name
   else (
     mkdir odb_home;
-    if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
+    if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs; mkdir !build_dir);
   );
   Sys.chdir !build_dir;
   match !main with
