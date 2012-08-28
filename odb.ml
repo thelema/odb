@@ -732,7 +732,7 @@ let install_list pkgs =
     StringSet.print !reqs;
   )
 
-let rec get_dep_edges to_visit visited edges =
+let rec dependency_edges to_visit visited edges =
   if StringSet.is_empty to_visit then edges
   else
     let pkg = StringSet.min_elt to_visit in
@@ -741,23 +741,21 @@ let rec get_dep_edges to_visit visited edges =
         (fun acc (q,_) ->
            let new_edge = sprintf "  %s -> %s;\n" pkg q.id in
            StringSet.add new_edge acc)
-        edges (Dep.get_deps (to_pkg pkg))
-    in
+        edges (Dep.get_deps (to_pkg pkg)) in
     let to_visit_new =
       List.fold_left
         (fun acc (p,_) -> StringSet.add p.id acc)
-        StringSet.empty (Dep.get_deps (to_pkg pkg))
-    in
+        StringSet.empty (Dep.get_deps (to_pkg pkg)) in
     let to_visit_next =
       StringSet.union (StringSet.remove pkg to_visit) to_visit_new in
-    get_dep_edges to_visit_next (StringSet.add pkg visited) new_edges
+    dependency_edges to_visit_next (StringSet.add pkg visited) new_edges
 
 let output_deps fn pkgs =
   list_to_file fn (fun x -> x)
     (["strict digraph dependencies {\n";
       "  node [shape = circle];\n"] @
        (StringSet.elements
-          (get_dep_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty)) @
+          (dependency_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty)) @
      ["}\n"]);
   printf "to view the graph: dotty %s\n" fn;
   printf "to convert it to png: dot -Tpng %s > deps.png\n" fn
