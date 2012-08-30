@@ -66,6 +66,11 @@ let first_line_output cmd =
   let ic = Unix.open_process_in cmd in
   try let line = input_line ic in ignore(Unix.close_process_in ic); line
   with End_of_file -> ""
+let list_to_file f to_string l =
+  let out = open_out f in
+  List.iter (fun elt -> fprintf out "%s" (to_string elt)) l;
+  close_out out
+
 
 (* Useful types *)
 module StringSet = struct (* extend type with more operations *)
@@ -103,7 +108,7 @@ let configure_flags = ref ""
 let configure_flags_global = ref ""
 (* what packages need to be reinstalled because of updates *)
 let reqs = ref (StringSet.empty)
-type main_act = Install | Get | Info | Clean | Package
+type main_act = Install | Get | Info | Deps of string | Clean | Package
 let main = ref Install
 
 (* Command line argument handling *)
@@ -117,19 +122,21 @@ let handle_short_options key_spec_doc_list =
   loop key_spec_doc_list []
 let push_install s = to_install := s :: !to_install
 let set_ref ref v = Arg.Unit (fun () -> ref := v)
+let set_deps_output = Arg.String (fun fn -> main := Deps fn)
 let cmd_line = Arg.align (handle_short_options [
   ("--auto-reinstall", "-ar"), Arg.Set auto_reinstall, " Auto-reinstall dependent packages on update";
-  ("--clean", "-c"), Arg.Unit(fun () -> main := Clean), " Cleanup downloaded tarballs and install folders";
+  ("--clean", "-c"), set_ref main Clean, " Cleanup downloaded tarballs and install folders";
   ("--configure-flags", "-cf"), Arg.Set_string configure_flags, " Flags to pass to explicitly installed packages' configure step";
   ("--configure-flags-all", "-cfa"), Arg.Set_string configure_flags_global, " Flags to pass to all packages' configure step";
   ("--debug", "-d"), Arg.Set debug, " Debug package dependencies";
+  ("--deps", "-dp"), set_deps_output, " Output dependency graph of listed packages to file (graphviz dot tool format)";
   ("--force", "-f"), Arg.Set force, " Force (re)installation of packages named";
   ("--force-all", "-fa"), Arg.Set force_all, " Force (re)installation of dependencies";
   ("--get", "-g"), set_ref main Get, " Only download and extract packages; don't install";
   ("--have-perms", "-hp"), Arg.Set have_perms, " Don't use --prefix even without sudo";
   ("--ignore", "-i"), Arg.Set ignore_unknown, " Don't fail on unknown package name";
   ("--info", "-l"), set_ref main Info, " Only print the metadata for the packages listed; don't install";
-  ("--no-base", "-nb"), Arg.Unit(fun () -> base := ""), " Don't auto-detect GODI/BASE";
+  ("--no-base", "-nb"), set_ref base "", " Don't auto-detect GODI/BASE";
   ("--package", "-p"), set_ref main Package, " Install all packages from package files";
   ("--stable", "-s"), set_ref repository "stable", " Use stable repo";
   ("--sudo", "-su"), Arg.Set sudo, " Switch to root for installs";
@@ -725,6 +732,34 @@ let install_list pkgs =
     StringSet.print !reqs;
   )
 
+let rec dependency_edges to_visit visited edges =
+  if StringSet.is_empty to_visit then edges
+  else
+    let pkg = StringSet.min_elt to_visit in
+    let new_edges =
+      List.fold_left
+        (fun acc (q,_) ->
+           let new_edge = sprintf "  \"%s\" -> \"%s\";\n" pkg q.id in
+           StringSet.add new_edge acc)
+        edges (Dep.get_deps (to_pkg pkg)) in
+    let to_visit_new =
+      List.fold_left
+        (fun acc (p,_) -> StringSet.add p.id acc)
+        StringSet.empty (Dep.get_deps (to_pkg pkg)) in
+    let to_visit_next =
+      StringSet.union (StringSet.remove pkg to_visit) to_visit_new in
+    dependency_edges to_visit_next (StringSet.add pkg visited) new_edges
+
+let output_deps fn pkgs =
+  list_to_file fn (fun x -> x)
+    (["strict digraph dependencies {\n";
+      "  node [shape = circle];\n"] @
+       (StringSet.elements
+          (dependency_edges (StringSet.of_list pkgs) StringSet.empty StringSet.empty)) @
+     ["}\n"]);
+  printf "to view the graph: dotty %s\n" fn;
+  printf "to convert it to png: dot -Tpng %s > deps.png\n" fn
+
 let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
   parse_package_file (odb_home </> "packages") |> Repo.encache_list;
   parse_package_file (Fn.dirname (get_exe ()) </> "packages") |> Repo.encache_list;
@@ -734,6 +769,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
     mkdir odb_home;
     if not !sudo then (mkdir odb_lib; mkdir odb_bin; mkdir odb_stubs);
   );
+  let here = Sys.getcwd () in
   Sys.chdir !build_dir;
   match !main with
   | Clean -> Sys.command ("rm -rvf install-*") |> ignore
@@ -752,6 +788,7 @@ let () = (** MAIN **)(* Command line arguments already parsed above, pre-main *)
        printf "Package %s downloaded to %s\n" pid (to_pkg pid |> get_package) in
      List.iter print_loc !to_install
   | Info -> List.map to_pkg !to_install |> List.iter PL.print
+  | Deps fn -> Sys.chdir here; output_deps fn !to_install
   | Install -> List.map to_pkg !to_install |> install_list
   (* TODO: TEST FOR CAML_LD_LIBRARY_PATH=odb_lib and warn if not set *)
   | Package -> (* install all packages from package files *)
