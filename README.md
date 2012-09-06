@@ -5,10 +5,22 @@ Odb aims to be an 80% solution for automated ocaml package installation.
 ### Setup
 
 Packages will be installed by default to `~/.odb/lib`, so add this
-entry to your `/etc/findlib.conf` (or `/etc/ocamlfind.conf`) path or set the environment
-variable `OCAMLPATH=~/.odb/lib`.
+entry to your `/etc/findlib.conf` (or `/etc/ocamlfind.conf`) path or
+set the environment variable `OCAMLPATH=~/.odb/lib`.
 
-The latest version can be downloaded directly from github with the following command:
+If you install a package that uses C stub libraries, you will need to
+add `$HOME/.odb/lib/stublibs` to your `ocaml/ld.conf` file.  The
+following command does this:
+
+    echo $HOME/.odb/lib/stublibs | sudo tee -a `ocamlc -where`/ld.conf
+
+If you don't have write access to your `ld.conf` file, you can instead
+set the environment variable:
+
+    export CAML_LD_LIBRARY_PATH=$HOME/.odb/lib/stublibs
+
+The latest version of odb can be downloaded directly from github with
+the following command:
 
     curl -O https://raw.github.com/thelema/odb/master/odb.ml
 
@@ -24,16 +36,23 @@ them (and their dependencies):
 
     ocaml odb.ml <packagenames>
 
-If you install a package that uses C stub libraries, you will need to
-add `$HOME/.odb/lib/stublibs` to your `ocaml/ld.conf` file.  The
-following command does this:
+You can also install packages by giving odb tarballs (local or remote):
 
-    echo $HOME/.odb/lib/stublibs | sudo tee -a `ocamlc -where`/ld.conf
+    ocaml odb.ml http://prdownloads.sourceforge.net/camomile/camomile-0.8.3.tar.bz2
 
-If you don't have write access to your `ld.conf` file, you can instead
-set the environment variable:
+Or git URLs:
 
-    export CAML_LD_LIBRARY_PATH=$HOME/.odb/lib/stublibs
+    ocaml odb.ml https://github.com/thelema/bench.git
+
+Or local source directories:
+
+    ocaml odb.ml /home/thelema/camomile-0.8.2/
+
+When not installing by a plain package name, odb will try to infer
+dependencies, but is currently unable to identify the package name to
+see if it's already installed.  To fix this, use a package file, as
+described in the "Local Packages" section below.
+
 
 ### Oasis-DB
 
@@ -64,9 +83,13 @@ environment variable.
 
 ### Local Packages
 
-Odb also supports package metadata from a local `packages` file.To
-inform odb about a package that exists in a local directory, put a
-line like one of the following lines into your `~/.odb/packages` file:
+Odb also supports package metadata from a local `packages` file. Odb
+reads these files on startup to find out about packages that aren't
+available on Oasis-DB or to override the data on Oasis-DB.  There are
+two `packages` files that odb will read; one in `~/.odb/packages` and
+the other in the same directory as the `odb.ml` file.
+
+For installation from a local source directory, add the line
 
     batteries dir=/home/thelema/batteries
 
