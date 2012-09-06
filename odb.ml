@@ -82,7 +82,7 @@ let make = lazy(if detect_exe "gnumake" then "gnumake"
 
 (* Configurable parameters, some by command line *)
 let webroots = Str.split (Str.regexp "|")
-	  (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
+  (getenv_def ~def:"http://oasis.ocamlcore.org/dev/odb/" "ODB_PACKAGE_ROOT")
 (*let webroots = ["http://mutt.cse.msu.edu:8081/"] *)
 let default_base = (Sys.getenv "HOME") </> ".odb"
 let odb_home    = getenv_def ~def:default_base "ODB_INSTALL_DIR"
@@ -413,17 +413,17 @@ module Dep = struct
     | None, Some _ -> dprintf "Package %s installed" p.id; true
     | Some (c,vreq), Some inst ->
        comp (Ver.cmp inst vreq) c |> dtap (printf "Package %s(%s) dep satisfied: %B\n%!" p.id (req_to_string req))
-  let parse_vreq vr =
+  let parse_vreq vr = (* parses a version requirement string *)
     let l = String.length vr in
     if vr.[0] = '>' && vr.[1] = '=' then (GE, parse_ver (String.sub vr 2 (l-3)))
     else if vr.[0] = '>' then (GT, parse_ver (String.sub vr 1 (l-2)))
     else if vr.[0] = '=' then (EQ, parse_ver (String.sub vr 1 (l-2)))
     else failwith ("Unknown comparator in dependency, cannot parse version requirement: " ^ vr)
   let whitespace_rx = Str.regexp "[ \t]+"
+  let to_pkg_safe id = try to_pkg id with Failure _ -> {id=id; props=[]}
   let make_dep str = (* convert a string "foo(op ver)" into a dep *)
     try
       let str = Str.global_replace whitespace_rx "" str in
-      let to_pkg_safe id = try to_pkg id with Failure _ -> {id=id; props=[]} in
       match Str.bounded_split (Str.regexp_string "(") str 2 with
       | [pkg; vreq] -> to_pkg_safe pkg, Some (parse_vreq vreq)
       | _ -> to_pkg_safe str, None
@@ -434,6 +434,14 @@ module Dep = struct
   let of_oasis dir = (* reads the [dir]/_oasis file *)
     let fn = dir </> "_oasis" in
     if not (Sys.file_exists fn) then [] else
+      (*
+	let pkg = OASISParse.from_file !OASISContext.default fn in
+	let deps_o = OASISBuildSection.transitive_build_depends pkg in
+	let add_fl _k v acc =
+	  ( List.map (function OASISTypes.FindlibPackage (name,cmp) -> Some (to_pkg_safe name, parse_vreq cmp) | _ -> None) flps |> unopt) @ acc
+	in
+	OASISSection.MapSection.fold add_fl deps_o []
+      *)
       let lines = read_lines fn in
       List.map (fun line ->
                 match Str.bounded_split (Str.regexp_string ":") line 2 with
