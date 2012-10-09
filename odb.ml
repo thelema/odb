@@ -442,8 +442,9 @@ module Dep = struct
       | [pkg; vreq] -> to_pkg_safe pkg, Some (parse_vreq vreq)
       | _ -> to_pkg_safe str, None
     with x -> if !ignore_unknown then {id="";props=[]}, None else raise x
-  let string_to_deps s = Str.split (Str.regexp ",") s |> List.map make_dep
-                         |> List.filter (fun (p,_) -> p.id <> "")
+  let string_to_deps ?(exclude="") s =
+    Str.split (Str.regexp ",") s |> List.filter ((<>) exclude)
+    |> List.map make_dep |> List.filter (fun (p,_) -> p.id <> "")
   let get_deps p = let deps = PL.get ~p ~n:"deps" in
                    if deps = "?" then [] else string_to_deps deps
   let is_auto_dep p = PL.get ~p ~n:"deps" = "?" || PL.get ~p ~n:"cli" = "yes"
@@ -465,38 +466,35 @@ module Dep = struct
   (* Search for META files - does not honor sym-links *)
   let rec find_metas dir =
     let lst = Sys.readdir dir |> Array.to_list |> List.map ((</>) dir) in
-    let dirs, files = List.partition
-                        (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) lst in
-    let is_valid_meta fn = Str.string_match meta_rx (Fn.basename fn) 0 in
-    (* Annotate META with the coresponding package name, either from the directory or suffix *)
+    let dirs, files = List.partition (fun fn -> try Sys.is_directory fn with Sys_error _ -> false) lst in
+    (* Annotate META with the coresponding package name,
+       either from the directory or suffix *)
     let annot_meta fn =
-      let p = Fn.dirname fn in
-      let fn' = Fn.basename fn in
+      let dir, base = Fn.dirname fn, Fn.basename fn in
       try
-        if Str.string_match meta_rx fn' 0 then
-          Str.matched_group 2 fn', fn
-        else p, fn
-      with Not_found -> p, fn
+        if Str.string_match meta_rx base 0 then
+          Some (Str.matched_group 2 base, fn)(* use extension as package name *)
+        else None (* not a META file *)
+      with Not_found -> Some (dir, fn) (* use dir as package name *)
     in
-    let metas = List.filter is_valid_meta files in
-    let metas = List.map annot_meta metas in
+    let metas = List.map annot_meta files |> unopt in
     metas @ (List.map find_metas dirs |> List.concat)
   let of_metas p dir = (* determines dependencies based on META files *)
-    let lst = find_metas dir in
-    let meta (p, fn) =
-      let lines = read_lines fn in
-      List.map (fun line ->
-                if Str.string_match require_rx line 0 then
-                  try Str.split (Str.regexp "[ ,]") (Str.matched_group 2 line)
-                  with Not_found -> []
-                else []) lines |> List.concat
-      (* Consider only base packages, filter out the package we are installing to
-         handle cases where we have sub packages *)
-      |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> List.hd)
-      |> List.filter ((<>) p)
+    let process_meta (p, fn) =
+      let get_pkgname line =
+        if Str.string_match require_rx line 0 then
+          try Str.split (Str.regexp "[ ,]") (Str.matched_group 2 line)
+          with Not_found -> []
+        else [] in
+      List.map get_pkgname (read_lines fn) |> List.concat
+      (* Consider only base packages, filter out the package we are
+         installing to handle cases where we have sub packages *)
+      |> List.map (fun p -> Str.split (Str.regexp "\\.") p |> de_exn List.hd)
+      |> unopt (* for de_exn *)
       |> List.filter (fun p -> not (Str.string_match weird_rx p 0))
     in
-    List.map meta lst |> List.concat |> List.filter ((<>) p) |> List.map string_to_deps |> List.concat
+    List.map process_meta (find_metas dir) |> List.concat
+    |> List.map (string_to_deps ~exclude:p) |> List.concat
 end
 
 let topo_sort_gen deps eq list = (* generic topo sort *)
