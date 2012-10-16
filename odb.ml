@@ -549,7 +549,12 @@ let clone ~cmd act p =
 let extract_tarball p =
   let idir = make_install_dir p.id in
   let err = Failure ("Could not extract tarball for " ^ p.id) in
-  indir idir (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p idir)) ~err);
+  (try
+     indir idir
+       (fun () -> run_or ~cmd:(extract_cmd (get_tarball_chk p idir)) ~err);
+   with Failure _ -> (* let's give it a last chance as a .tar.gz *)
+     indir idir
+       (fun () -> run_or ~cmd:("tar -zxf " ^ (get_tarball_chk p idir)) ~err));
   dprintf "Extracted tarball for %s into %s" p.id idir;
   find_install_dir idir
 
