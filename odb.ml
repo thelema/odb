@@ -24,7 +24,7 @@ let getenv_def ?(def="") v = try Sys.getenv v with Not_found -> def
 let getenv v =
   try Sys.getenv v
   with Not_found -> failwith ("undefined environment variable: " ^ v)
-let starts_with s p = Str.string_match (Str.regexp ("^" ^ p)) s 0
+let starts_with ~str ~prfx = Str.string_match (Str.regexp_string prfx) str 0
 let rec str_next str off want =
   if off >= String.length str then None
   else if String.contains want str.[off] then Some(str.[off], off)
@@ -33,9 +33,9 @@ let slice str st en = String.sub str st (en-st) (* from offset st to en-1 *)
 let split str chr = let i = String.index str chr in
                     (slice str 0 i, slice str (i+1) (String.length str))
 let expand_tilde_slash p =
-  if starts_with p "~/" then
-	let home_dir = getenv "HOME" in
-	Str.replace_first (Str.regexp "^~") home_dir p
+  if starts_with ~str:p ~prfx:"~/" then
+    let home_dir = getenv "HOME" in
+    Str.replace_first (Str.regexp "^~") home_dir p
   else p
 let indir d f =
   let here = Sys.getcwd () in
