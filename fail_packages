@@ -127,3 +127,7 @@ ocp-build tarball=http://www.ocamlpro.com/pub/ocp-build.tar.gz
 # The OCaml Bioinformatics Library
 # broken: seems like it needs oasis 0.3.1
 biocaml git=git://github.com/biocaml/biocaml.git
+
+# count lines of OCaml code and doc
+# broken: hangs at the make install stage, I don't understand what's the problem
+ocamlwc tarball=http://www.lri.fr/~filliatr/ftp/ocaml/misc/ocamlwc-0.3.tar.gz
